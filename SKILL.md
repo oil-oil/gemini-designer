@@ -77,7 +77,7 @@ Read the file at `output_path` to get Gemini's response.
 
 ## Workflow
 
-1. Describe the design need clearly — include context, style preferences, target audience.
+1. Only describe what the page/component is for and the core content — do NOT add your own design opinions (colors, fonts, layout style, etc.) unless the user explicitly specified them.
 2. Run the script with the appropriate `--output-type`.
 3. Read the output file.
 4. For HTML/SVG: save to the project and iterate if needed.
@@ -85,8 +85,7 @@ Read the file at `output_path` to get Gemini's response.
 
 ## Tips
 
-- Be specific about style: "minimalist", "playful", "corporate", "dark mode", etc.
-- Mention target audience or brand context for better results.
-- For HTML pages, specify key sections: "hero, features, pricing, footer".
-- For SVG icons, specify size, style (filled/stroke), and color.
+- Keep the task prompt short and focused on what it is, not how it should look.
+- If the user didn't specify a style/color/font, don't invent one — let Gemini decide.
+- Only pass explicit user preferences (e.g. "dark mode", "use blue") when the user actually said so.
 - Chinese prompts work well — Gemini responds in the same language.
