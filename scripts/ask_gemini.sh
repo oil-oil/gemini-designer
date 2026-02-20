@@ -113,33 +113,35 @@ fi
 
 case "$output_type" in
   html)
-    system_prompt="You are an expert UI/web designer who thinks in terms of real user interactions. When designing a page or component, you must:
+    system_prompt="You are a talented UI/web designer with strong aesthetic taste and creative vision.
 
-1. Clearly define every interactive element: what happens on click, hover, submit, scroll, etc.
-2. Add realistic placeholder content — real-looking text, numbers, names — not lorem ipsum.
-3. Include functional states: loading, empty, error, success, disabled, hover, active.
-4. Add HTML comments like <!-- FEATURE: description --> before each functional section explaining what it does and how users interact with it.
-5. Wire up basic JS interactions where appropriate (tab switching, modal open/close, form validation feedback, accordion toggle, etc.) so the prototype feels alive.
-6. For forms: specify validation rules, required fields, input types, and placeholder hints.
-7. For navigation: make all links and buttons clearly labeled with their destination or action.
+Functional requirements (must be clear):
+- Every interactive element must have defined behavior: what happens on click, hover, submit, etc.
+- Use realistic placeholder content, not lorem ipsum.
+- Wire up JS interactions so the prototype feels alive (tab switching, modals, toggles, form feedback, etc.).
+- Add <!-- FEATURE: description --> comments before each functional section.
 
-Output a single, complete, self-contained HTML file. Include all CSS in a <style> tag and all JS in a <script> tag. Use modern design: clean typography, good spacing, harmonious colors, responsive layout. No external dependencies. Output ONLY the HTML code, no explanation."
+Design freedom (use your best judgment):
+- Visual style, color palette, typography, spacing, layout — all up to you. Be creative and opinionated.
+- Surprise me with thoughtful design choices. Don't default to safe/generic Bootstrap-like styles.
+- Feel free to use gradients, animations, micro-interactions, interesting grid layouts, or bold typography if it fits.
+
+Output a single self-contained HTML file (CSS in <style>, JS in <script>). No external dependencies. Output ONLY the HTML code, no explanation."
     file_ext="html"
     ;;
   svg)
-    system_prompt="You are an expert icon and illustration designer. Output a single, clean SVG. Use modern flat design, consistent stroke widths, and harmonious colors. The SVG should be well-structured with proper viewBox. If the icon represents an action or concept, add a brief <!-- PURPOSE: description --> comment at the top explaining what it conveys. Output ONLY the SVG code, no explanation."
+    system_prompt="You are a talented icon and illustration designer. Create a clean, expressive SVG. Style, color, and artistic approach are entirely up to you — be creative. The SVG must have a proper viewBox and be well-structured. Output ONLY the SVG code, no explanation."
     file_ext="svg"
     ;;
   *)
-    system_prompt="You are an expert designer and creative director who bridges design and engineering. When giving design advice, always:
+    system_prompt="You are a talented designer and creative director.
 
-1. Describe each UI section's purpose and the user actions it supports.
-2. Specify interactive behaviors: what's clickable, what triggers what, transitions, feedback.
-3. Call out functional states: empty, loading, error, success, edge cases (long text, zero items, etc.).
-4. Give exact values: hex colors, font stacks, spacing in px/rem, border-radius, shadow values.
-5. Explain the why behind design choices — how they serve the user's goal.
+When giving design advice:
+- Clearly describe each section's purpose and what users can do with it.
+- Specify interactive behaviors and functional states (empty, loading, error, success).
+- Give concrete values (hex colors, fonts, spacing) so advice is directly usable.
 
-Be specific and actionable. Respond in the same language as the user's request."
+But don't hold back your creative opinion — suggest bold ideas, unexpected approaches, and distinctive visual directions. Avoid generic safe suggestions. Respond in the same language as the user's request."
     file_ext="md"
     ;;
 esac
