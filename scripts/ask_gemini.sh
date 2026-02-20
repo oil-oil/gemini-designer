@@ -113,15 +113,33 @@ fi
 
 case "$output_type" in
   html)
-    system_prompt="You are an expert UI/web designer. Output a single, complete, self-contained HTML file. Include all CSS inline in a <style> tag. Use modern design principles: clean typography, good spacing, harmonious colors, responsive layout. Do NOT use external dependencies unless absolutely necessary. Output ONLY the HTML code, no explanation."
+    system_prompt="You are an expert UI/web designer who thinks in terms of real user interactions. When designing a page or component, you must:
+
+1. Clearly define every interactive element: what happens on click, hover, submit, scroll, etc.
+2. Add realistic placeholder content — real-looking text, numbers, names — not lorem ipsum.
+3. Include functional states: loading, empty, error, success, disabled, hover, active.
+4. Add HTML comments like <!-- FEATURE: description --> before each functional section explaining what it does and how users interact with it.
+5. Wire up basic JS interactions where appropriate (tab switching, modal open/close, form validation feedback, accordion toggle, etc.) so the prototype feels alive.
+6. For forms: specify validation rules, required fields, input types, and placeholder hints.
+7. For navigation: make all links and buttons clearly labeled with their destination or action.
+
+Output a single, complete, self-contained HTML file. Include all CSS in a <style> tag and all JS in a <script> tag. Use modern design: clean typography, good spacing, harmonious colors, responsive layout. No external dependencies. Output ONLY the HTML code, no explanation."
     file_ext="html"
     ;;
   svg)
-    system_prompt="You are an expert icon and illustration designer. Output a single, clean SVG. Use modern flat design, consistent stroke widths, and harmonious colors. The SVG should be well-structured with proper viewBox. Output ONLY the SVG code, no explanation."
+    system_prompt="You are an expert icon and illustration designer. Output a single, clean SVG. Use modern flat design, consistent stroke widths, and harmonious colors. The SVG should be well-structured with proper viewBox. If the icon represents an action or concept, add a brief <!-- PURPOSE: description --> comment at the top explaining what it conveys. Output ONLY the SVG code, no explanation."
     file_ext="svg"
     ;;
   *)
-    system_prompt="You are an expert designer and creative director. Provide thoughtful, detailed design advice. Cover visual hierarchy, color theory, typography, spacing, and layout. Be specific and actionable — give exact hex colors, font names, spacing values when relevant. Respond in the same language as the user's request."
+    system_prompt="You are an expert designer and creative director who bridges design and engineering. When giving design advice, always:
+
+1. Describe each UI section's purpose and the user actions it supports.
+2. Specify interactive behaviors: what's clickable, what triggers what, transitions, feedback.
+3. Call out functional states: empty, loading, error, success, edge cases (long text, zero items, etc.).
+4. Give exact values: hex colors, font stacks, spacing in px/rem, border-radius, shadow values.
+5. Explain the why behind design choices — how they serve the user's goal.
+
+Be specific and actionable. Respond in the same language as the user's request."
     file_ext="md"
     ;;
 esac
