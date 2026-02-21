@@ -24,33 +24,26 @@ The script path is:
 ### HTML page design
 
 ```bash
-~/.claude/skills/gemini-designer/scripts/ask_gemini.sh \
-  --task "Design a modern landing page for a SaaS product called FlowSync" \
-  --output-type html
+~/.claude/skills/gemini-designer/scripts/ask_gemini.sh "Design a modern landing page for a SaaS product called FlowSync" --html
 ```
 
 ### SVG icon
 
 ```bash
-~/.claude/skills/gemini-designer/scripts/ask_gemini.sh \
-  --task "Create a minimal settings gear icon, 24x24, stroke style" \
-  --output-type svg
+~/.claude/skills/gemini-designer/scripts/ask_gemini.sh "Create a minimal settings gear icon, 24x24, stroke style" --svg
 ```
 
 ### Design advice (text)
 
 ```bash
-~/.claude/skills/gemini-designer/scripts/ask_gemini.sh \
-  --task "Suggest a color palette and typography for a developer blog"
+~/.claude/skills/gemini-designer/scripts/ask_gemini.sh "Suggest a color palette and typography for a developer blog"
 ```
 
-### Custom output path
+### Custom output path (auto-infers type from extension)
 
 ```bash
-~/.claude/skills/gemini-designer/scripts/ask_gemini.sh \
-  --task "Design a pricing card component" \
-  --output-type html \
-  --output ./designs/pricing-card.html
+~/.claude/skills/gemini-designer/scripts/ask_gemini.sh "Design a pricing card component" \
+  -o ./designs/pricing-card.html
 ```
 
 The script prints on success:
@@ -63,9 +56,11 @@ Read the file at `output_path` to get Gemini's response.
 
 ## Output types
 
-- `html` — Self-contained HTML file with inline CSS. Ready to open in browser.
-- `svg` — Clean SVG code. Can be saved directly or embedded in HTML/React.
+- `html` — Self-contained HTML file with inline CSS. Ready to open in browser. Use `--html` shorthand or `--output-type html`.
+- `svg` — Clean SVG code. Can be saved directly or embedded in HTML/React. Use `--svg` shorthand or `--output-type svg`.
 - `text` (default) — Design advice in markdown: color palettes, typography, layout suggestions.
+
+If you pass `-o` with a `.html` or `.svg` extension and don't specify an output type, the type is auto-inferred from the file extension.
 
 ## When to use
 
@@ -78,7 +73,7 @@ Read the file at `output_path` to get Gemini's response.
 ## Workflow
 
 1. Only describe what the page/component is for and the core content — do NOT add your own design opinions (colors, fonts, layout style, etc.) unless the user explicitly specified them.
-2. Run the script with the appropriate `--output-type`.
+2. Run the script with the appropriate output type flag (`--html`, `--svg`, or default text).
 3. Read the output file.
 4. For HTML/SVG: save to the project and iterate if needed.
 5. For text advice: apply the suggestions to your implementation.

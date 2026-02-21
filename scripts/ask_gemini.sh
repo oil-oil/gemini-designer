@@ -4,24 +4,27 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  ask_gemini.sh --task <text> [options]
+  ask_gemini.sh [options] "<task text>"
 
-Required:
-  -t, --task <text>            Request text (or pipe from stdin)
-      --task-file <path>       Read request from file
+The first non-flag argument is the task text (or use -t / --task, or pipe from stdin).
 
 Options:
-  -o, --output <path>          Output file path (default: auto-generated)
+  -t, --task <text>            Request text (alternative to positional arg)
+      --html                   Output as self-contained HTML (shorthand for --output-type html)
+      --svg                    Output as SVG (shorthand for --output-type svg)
       --output-type <type>     Expected output: text (default), html, svg
+  -o, --output <path>          Output file path (default: auto-generated)
+                               Auto-infers output type from extension (.html, .svg)
   -h, --help                   Show this help
 
 Output (on success):
   output_path=<file>           Path to response file
 
 Examples:
-  ask_gemini.sh -t "Design a landing page for a coffee shop" --output-type html
-  ask_gemini.sh -t "Create an SVG icon for a settings gear" --output-type svg
-  ask_gemini.sh -t "Give me 3 color palette suggestions for a tech blog"
+  ask_gemini.sh "Design a landing page for a coffee shop" --html
+  ask_gemini.sh "Create an SVG icon for a settings gear" --svg
+  ask_gemini.sh "Give me 3 color palette suggestions for a tech blog"
+  ask_gemini.sh "Design a pricing card" -o ./designs/card.html
 USAGE
 }
 
@@ -35,20 +38,35 @@ require_cmd() {
 # --- Parse arguments ---
 
 task_text=""
-task_file=""
 output_path=""
 output_type="text"
+output_type_explicit=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -t|--task)        task_text="${2:-}"; shift 2 ;;
-    --task-file)      task_file="${2:-}"; shift 2 ;;
     -o|--output)      output_path="${2:-}"; shift 2 ;;
-    --output-type)    output_type="${2:-}"; shift 2 ;;
+    --output-type)    output_type="${2:-}"; output_type_explicit=true; shift 2 ;;
+    --html)           output_type="html"; output_type_explicit=true; shift ;;
+    --svg)            output_type="svg"; output_type_explicit=true; shift ;;
     -h|--help)        usage; exit 0 ;;
-    *) echo "[ERROR] Unknown argument: $1" >&2; usage >&2; exit 1 ;;
+    *)
+      if [[ -z "$task_text" ]]; then
+        task_text="$1"; shift
+      else
+        echo "[ERROR] Unknown argument: $1" >&2; usage >&2; exit 1
+      fi
+      ;;
   esac
 done
+
+# Auto-infer output type from output path extension
+if [[ "$output_type_explicit" == false && -n "$output_path" ]]; then
+  case "$output_path" in
+    *.html) output_type="html" ;;
+    *.svg)  output_type="svg" ;;
+  esac
+fi
 
 require_cmd curl
 require_cmd jq
@@ -93,19 +111,12 @@ base_url="${base_url%/}"
 
 # --- Resolve task text ---
 
-if [[ -n "$task_file" ]]; then
-  if [[ ! -f "$task_file" ]]; then
-    echo "[ERROR] Task file does not exist: $task_file" >&2
-    exit 1
-  fi
-  task_text="$(cat "$task_file")"
-fi
 if [[ -z "$task_text" && ! -t 0 ]]; then
   task_text="$(cat)"
 fi
 
 if [[ -z "$task_text" ]]; then
-  echo "[ERROR] No task provided. Use --task, --task-file, or pipe from stdin." >&2
+  echo "[ERROR] No task provided. Pass as first argument, use --task, or pipe from stdin." >&2
   exit 1
 fi
 
