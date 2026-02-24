@@ -1,17 +1,17 @@
 ---
 name: gemini-designer
-description: Delegate design tasks to Gemini (google/gemini-3.1-pro-preview) via OpenRouter. Use when you need UI/web design (single-page HTML), SVG icons/illustrations, color palettes, typography suggestions, layout advice, or any visual design reference. Gemini acts as your designer friend — ask it to create HTML page mockups, design SVG icons, suggest design systems, or give design feedback. Triggers on design-related requests like "design a page", "create an icon", "suggest colors", "make a logo", "UI mockup", "design reference".
+description: Delegate design tasks to Gemini (gemini-2.5-flash-preview) via aicodemirror API. Use when you need UI/web design (single-page HTML), SVG icons/illustrations, color palettes, typography suggestions, layout advice, or any visual design reference. Gemini acts as your designer friend — ask it to create HTML page mockups, design SVG icons, suggest design systems, or give design feedback. Triggers on design-related requests like "design a page", "create an icon", "suggest colors", "make a logo", "UI mockup", "design reference".
 ---
 
 # Gemini Designer — Your Design Partner
 
-Delegate design tasks to Gemini via OpenRouter. Gemini creates HTML page designs, SVG icons, and provides design advice.
+Delegate design tasks to Gemini via aicodemirror API. Gemini creates HTML page designs, SVG icons, and provides design advice.
 
 ## Critical rules
 
-- ONLY interact with Gemini through the bundled shell script. NEVER call OpenRouter API directly.
+- ONLY interact with Gemini through the bundled shell script. NEVER call the API directly.
 - Run the script ONCE per task. Read the output file and proceed.
-- The script requires an OpenRouter API key. It checks (in order): `OPENROUTER_API_KEY` env var, `.env.local` in current/parent dirs, `~/.config/openrouter/api_key` file.
+- The script requires a Gemini API key. It checks (in order): `GEMINI_API_KEY` env var, `.env.local` in current/parent dirs, `~/.config/gemini-designer/api_key` file.
 
 ## How to call the script
 
