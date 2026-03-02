@@ -76,15 +76,15 @@ require_cmd jq
 api_key=""
 
 # 1. Environment variable
-if [[ -n "${GEMINI_API_KEY:-}" ]]; then
-  api_key="$GEMINI_API_KEY"
+if [[ -n "${ZENMUX_API_KEY:-}" ]]; then
+  api_key="$ZENMUX_API_KEY"
 fi
 
 # 2. Project .env.local (if running inside a project)
 if [[ -z "$api_key" ]]; then
   for candidate in ".env.local" "../.env.local" "../../.env.local"; do
     if [[ -f "$candidate" ]]; then
-      found="$(grep -E '^GEMINI_API_KEY=' "$candidate" 2>/dev/null | head -1 | cut -d= -f2-)"
+      found="$(grep -E '^ZENMUX_API_KEY=' "$candidate" 2>/dev/null | head -1 | cut -d= -f2-)"
       found="${found//\'/}"
       found="${found//\"/}"
       if [[ -n "$found" ]]; then
@@ -101,13 +101,15 @@ if [[ -z "$api_key" && -f "$HOME/.config/gemini-designer/api_key" ]]; then
 fi
 
 if [[ -z "$api_key" ]]; then
-  echo "[ERROR] No Gemini API key found." >&2
-  echo "Set GEMINI_API_KEY env var, or add it to .env.local, or save to ~/.config/gemini-designer/api_key" >&2
+  echo "[ERROR] No API key found." >&2
+  echo "Set ZENMUX_API_KEY env var, or add it to .env.local, or save to ~/.config/gemini-designer/api_key" >&2
   exit 1
 fi
 
-base_url="${GEMINI_BASE_URL:-https://api.aicodemirror.com/api/gemini/v1}"
+# --- API Configuration ---
+base_url="${ZENMUX_BASE_URL:-https://zenmux.ai/api/v1}"
 base_url="${base_url%/}"
+model="${ZENMUX_MODEL:-google/gemini-3.1-pro-preview}"
 
 # --- Resolve task text ---
 
@@ -165,20 +167,18 @@ trap 'rm -f "$prompt_file" "$request_file"' EXIT
 printf "%s" "$task_text" > "$prompt_file"
 
 jq -n \
-  --arg model "gemini-2.5-flash-preview" \
+  --arg model "$model" \
   --arg system "$system_prompt" \
   --rawfile user "$prompt_file" \
   '{
     model: $model,
-    temperature: 0.7,
-    max_tokens: 16384,
     messages: [
       { role: "system", content: $system },
       { role: "user", content: $user }
     ]
   }' > "$request_file"
 
-# --- Call Gemini API ---
+# --- Call API ---
 
 response_file="$(mktemp)"
 trap 'rm -f "$prompt_file" "$request_file" "$response_file"' EXIT
@@ -191,7 +191,7 @@ http_code="$(curl -s -w "%{http_code}" -o "$response_file" \
   -d @"$request_file")"
 
 if [[ "$http_code" -lt 200 || "$http_code" -ge 300 ]]; then
-  echo "[ERROR] Gemini API returned HTTP ${http_code}" >&2
+  echo "[ERROR] API returned HTTP ${http_code}" >&2
   cat "$response_file" >&2
   exit 1
 fi
@@ -201,7 +201,7 @@ fi
 content="$(jq -r '.choices[0].message.content // empty' < "$response_file")"
 
 if [[ -z "$content" ]]; then
-  echo "[ERROR] Empty response from Gemini" >&2
+  echo "[ERROR] Empty response from API" >&2
   jq . < "$response_file" >&2
   exit 1
 fi
