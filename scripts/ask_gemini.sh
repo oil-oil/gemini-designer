@@ -187,7 +187,7 @@ http_code="$(curl -s -w "%{http_code}" -o "$response_file" \
   -X POST "${base_url}/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${api_key}" \
-  --max-time 180 \
+  --max-time 300 \
   -d @"$request_file")"
 
 if [[ "$http_code" -lt 200 || "$http_code" -ge 300 ]]; then
