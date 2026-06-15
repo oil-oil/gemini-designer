@@ -140,7 +140,6 @@ COMMAND_PROMPTS = {
 """,
 }
 
-FILE_REQUIRED_COMMANDS = {"advise"}
 OUTPUT_TYPES = {
     "html": "html",
     "svg": "svg",
@@ -152,7 +151,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         prog="gemini-designer",
         description="Ask Gemini Designer through one stable CLI.",
         epilog=(
-            "Commands: advise = existing UI files with -f; "
+            "Commands: advise = visual advice, optionally with -f; "
             "direction = broad art direction, optionally with -f; "
             "html = new standalone HTML, optionally with -f; "
             "svg = new standalone SVG, optionally with -f; "
@@ -205,11 +204,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def require_readable_output(args: argparse.Namespace) -> None:
     if args.command in READABLE_OUTPUT_REQUIRED_COMMANDS and not args.out:
-        input_example = " -f ./path/to/file" if args.command == "advise" else ""
         fail(
             "missing_output",
             f"`{args.command}` requires -o with a readable markdown file name.",
-            f"Use: gemini-designer {args.command} \"your task\"{input_example} -o readable-name.md",
+            f"Use: gemini-designer {args.command} \"your task\" -o readable-name.md",
         )
 
 
@@ -515,12 +513,6 @@ def build_prompt(
     images: list[dict[str, object]],
 ) -> tuple[str, list[tuple[pathlib.Path, str]]]:
     files = [read_file(path) for path in args.file]
-    if args.command in FILE_REQUIRED_COMMANDS and not files and not images:
-        fail(
-            "missing_file",
-            f"`{args.command}` requires at least one file or image.",
-            f"Use: gemini-designer {args.command} \"your task\" -f ./path/to/file or -i ./screenshot.png",
-        )
     prompt_parts = [
         BASE_RULES.strip(),
         COMMAND_PROMPTS[args.command].strip(),

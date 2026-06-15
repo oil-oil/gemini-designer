@@ -37,12 +37,12 @@ If the CLI returns `error=not_authorized`, stop and tell the user Gemini Designe
 
 Commands:
 
-- `gemini-designer advise` — Use for existing HTML/CSS/TSX or design files. Requires `-f` or `-i`, and requires a readable markdown file name with `-o`. Gemini gives concrete implementation-oriented visual suggestions, reuse reminders, and pseudo-code snippets when useful. Use this for small refinements and project-style consistency.
+- `gemini-designer advise` — Use for visual design advice. It may include `-f` and `-i` as reference context, and requires a readable markdown file name with `-o`. Gemini gives concrete implementation-oriented visual suggestions, reuse reminders, and pseudo-code snippets when useful. Use this for small refinements and project-style consistency.
 - `gemini-designer direction` — Use before implementation when the task needs a stronger idea, art direction, visual metaphor, design imagery markdown, or high-level design direction. Files are optional. Always provide a readable markdown file name with `-o`.
 - `gemini-designer html` — Use for a new standalone HTML mockup or concept page. It may include `-f` and `-i` as reference context, but do not use it to directly revise an existing project file.
 - `gemini-designer svg` — Use for a new SVG icon or simple illustration. It may include `-f` and `-i` as reference context.
 
-Use complete files with `gemini-designer advise` by default. Do not summarize, slice, or annotate the file unless the file is too large for the CLI limit or the user asks for a scoped review.
+When `advise` needs to judge existing UI, pass complete relevant files by default. Do not summarize, slice, or annotate the file unless the file is too large for the CLI limit or the user asks for a scoped review. Prompt-only `advise` is fine for general design questions.
 
 For `advise` and `direction`, always name the markdown file at call time with `-o`. Prefer a bare readable filename, such as `accounts-filter-advice.md`, `museon-home-art-direction.md`, or `pricing-page-design-imagery.md`; the CLI saves bare names under `.gemini-designer/`. Use an explicit path only when a specific directory is required.
 
