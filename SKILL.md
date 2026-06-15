@@ -21,6 +21,7 @@ Use Gemini as an external visual design advisor for taste, direction, hierarchy,
 - Do not ask Gemini to review code quality, technical debt, CSS lint, or engineering consistency unless the user explicitly asks. Keep Gemini focused on visual effect, design intent, hierarchy, rhythm, taste, and UI experience.
 - Do not ask Gemini to output code patches or diffs for existing files. Use its design advice, then make the actual edits yourself.
 - After Gemini returns design advice, design imagery markdown, visual direction, or an HTML mockup, show the output or a concise summary to the user and wait for confirmation before implementing it in project code, unless the user explicitly asked to implement immediately.
+- After `html` or `svg` returns, do not start an extra AI review, visual critique, browser screenshot check, or refinement loop unless the user explicitly asked for checking or iteration. Confirm the file exists, read enough to know what Gemini returned, then present it to the user.
 - For ordinary HTML, SVG, or icon requests, run the script ONCE per task. Read the output file and proceed.
 - Pass the user's stated requirements and concrete project context. Do not add the agent's own style labels, layout choices, color choices, metaphor choices, or evaluation criteria unless the user explicitly said them.
 - The CLI manages its own configuration and authorization. Do not pre-check authorization. If a call fails with `error=not_authorized`, report that Gemini Designer is not authorized.
@@ -119,7 +120,7 @@ Read the output file before acting. Apply only the suggestions that fit the proj
 
 `advise` and `direction` outputs include a final `原始提示词` section. It records the task text and readable paths for referenced files or images, without copying the full file contents into the appendix.
 
-For advisory outputs (`advise` and `direction`) and HTML mockups from Gemini, do not immediately edit project files. Present Gemini's output or a concise summary, ask the user to choose or confirm the direction, then implement only the confirmed parts. SVG icon output can be saved directly when the user's request is only to create the asset.
+For advisory outputs (`advise` and `direction`) and HTML mockups from Gemini, do not immediately edit project files. Present Gemini's output or a concise summary, ask the user to choose or confirm the direction, then implement only the confirmed parts. SVG icon output can be saved directly when the user's request is only to create the asset. Do not run a self-review pass just because an HTML or SVG file was created.
 
 The script prints on success:
 
