@@ -23,7 +23,7 @@ if [[ ! -f "$config_path" ]]; then
     printf '%s\n' 'base_url = "https://zenmux.ai/api/v1"'
     printf '%s\n' 'model = "google/gemini-3.1-pro-preview"'
     printf 'api_key_file = "%s"\n' "$api_key_file"
-    printf '%s\n' 'output_dir = "outputs/gemini-designer"'
+    printf '%s\n' 'output_dir = ".gemini-designer"'
     printf '%s\n' 'max_chars = 260000'
     printf '%s\n' 'max_image_bytes = 8000000'
     printf '%s\n' 'image_optimize = true'

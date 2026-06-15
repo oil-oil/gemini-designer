@@ -1,4 +1,5 @@
 .runtime/
+.gemini-designer/
 outputs/
 __pycache__/
 *.pyc

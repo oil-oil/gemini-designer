@@ -27,7 +27,7 @@ CONFIG_PATH = CONFIG_DIR / "config.toml"
 DEFAULT_API_KEY_FILE = CONFIG_DIR / "api_key"
 DEFAULT_BASE_URL = "https://zenmux.ai/api/v1"
 DEFAULT_MODEL = "google/gemini-3.1-pro-preview"
-DEFAULT_OUTPUT_DIR = pathlib.Path("outputs/gemini-designer")
+DEFAULT_OUTPUT_DIR = pathlib.Path(".gemini-designer")
 DEFAULT_MAX_CHARS = 260_000
 DEFAULT_MAX_IMAGE_BYTES = 8_000_000
 DEFAULT_IMAGE_OPTIMIZE = True
@@ -210,7 +210,7 @@ def require_readable_output(args: argparse.Namespace) -> None:
         fail(
             "missing_output",
             f"`{args.command}` requires -o with a readable markdown file name.",
-            f"Use: gemini-designer {args.command} \"your task\"{input_example} -o ./outputs/gemini-designer/readable-name.md",
+            f"Use: gemini-designer {args.command} \"your task\"{input_example} -o ./.gemini-designer/readable-name.md",
         )
 
 
