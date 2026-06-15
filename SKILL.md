@@ -188,4 +188,5 @@ Follow the `hint` when it is actionable. If `error=not_authorized`, stop and tel
 - Only pass explicit user preferences (e.g. "dark mode", "use blue") when the user actually said so.
 - When the task asks for design insight, direction, or an HTML mockup, do not ask Gemini for long explanatory copy. Let Gemini express ideas through visible UI structure, states, examples, hierarchy, and interaction when possible.
 - Do not translate "more designed" into visual noise. Strong visual treatment should support key actions, brand memory, and key content entry points; supporting areas should stay quiet, stable, and easy to scan.
+- Let Gemini actively consider motion, inline SVG, material, and micro-interaction opportunities, but do not prescribe a specific animation or material style unless the user asked for it.
 - Chinese prompts work well — Gemini responds in the same language.
