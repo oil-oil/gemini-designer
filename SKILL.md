@@ -49,6 +49,8 @@ For `advise` and `direction`, always name the markdown file at call time with `-
 
 For `html` and `svg`, pass files with `-f` when Gemini should reference existing content, design rules, previous mockups, theme tokens, or example components. Treat those files as context for a new design draft, not as files Gemini will patch in place.
 
+For `html`, describe the design goal only. Do not ask Gemini to save a file, return a `file://` URL, provide a download link, or explain where the file is. The CLI writes the output file; Gemini must return raw complete HTML source only.
+
 ## Context Rules
 
 Gemini receives only the command text, files passed with `-f`, and images passed with `-i`. It has no memory across calls.
@@ -142,7 +144,7 @@ Follow the `hint` when it is actionable. If `error=not_authorized`, stop and tel
 
 ## Output types
 
-- `gemini-designer html` — Self-contained HTML file with inline CSS. Ready to open in browser.
+- `gemini-designer html` — Self-contained complete HTML source with inline CSS. Ready to open in browser. The CLI rejects incomplete HTML, file URLs, and explanatory text.
 - `gemini-designer svg` — Clean SVG code. Can be saved directly or embedded in HTML/React.
 - `gemini-designer advise` and `gemini-designer direction` — Markdown output.
 

@@ -10,6 +10,7 @@ import json
 import mimetypes
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -125,10 +126,13 @@ COMMAND_PROMPTS = {
 请创建一个自包含 HTML 设计稿。重点体现清晰的信息层级、有辨识度的视觉意象、完整的交互状态和成熟的界面完成度。
 
 输出要求：
-- 输出单个完整 HTML 文件，CSS 写在 <style>，JS 写在 <script>。
+- 输出单个完整 HTML 文件，必须以 <!doctype html> 或 <html 开始，并以 </html> 结束。
+- CSS 写在 <style>，JS 写在 <script>。
 - 不要使用外部依赖。
 - 使用真实感占位内容，不要使用 lorem ipsum。
-- 只输出 HTML 代码。
+- 只输出原始 HTML 源码。第一个非空字符必须是 <。
+- 不要输出 Markdown 代码块、解释文字、文件路径、file:// URL、下载链接或“已创建文件”的说明。
+- 不要把任何说明文字写在 HTML 前后。
 """,
     "svg": """任务：
 请创建一个干净、有表现力的 SVG 图标或简单插画。
@@ -582,21 +586,59 @@ def resolve_output_path(args: argparse.Namespace, output_dir: pathlib.Path) -> p
 
 def system_prompt(command: str) -> str:
     if command == "html":
-        return "You are a talented UI/web designer. Output only a single self-contained HTML file."
+        return (
+            "你是优秀的 UI 与网页视觉设计师。只输出一个完整、自包含的原始 HTML 文档。"
+            "第一个非空字符必须是 <。不要输出 Markdown 代码块、解释文字、文件路径、"
+            "file:// URL 或下载链接。"
+        )
     if command == "svg":
-        return "You are a talented icon and illustration designer. Output only valid SVG."
-    return "You are an independent visual design advisor. Respond in the same language as the user."
+        return "你是优秀的图标与简单插画设计师。只输出有效 SVG 源码。"
+    return "你是独立的视觉设计顾问。使用与用户目标相同的语言回答。"
 
 
-def strip_code_fence(content: str, command: str) -> str:
+def strip_code_fence(content: str) -> str:
+    stripped = content.strip()
+    fence_match = re.fullmatch(r"```(?:[A-Za-z0-9_-]+)?\s*\n([\s\S]*?)\n```", stripped)
+    if fence_match:
+        return fence_match.group(1).strip()
+    return stripped
+
+
+def normalize_html_output(content: str) -> str:
+    content = strip_code_fence(content)
+    start_match = re.search(r"(?is)<!doctype\s+html\b|<html\b", content)
+    end_match = re.search(r"(?is)</html\s*>", content)
+    if not start_match or not end_match:
+        fail(
+            "invalid_generated_output",
+            "Gemini did not return a complete HTML document.",
+            "Retry the command. The html command requires raw HTML, not explanations, file URLs, or partial fragments.",
+        )
+    html = content[start_match.start() : end_match.end()].strip()
+    return html + "\n"
+
+
+def normalize_svg_output(content: str) -> str:
+    content = strip_code_fence(content)
+    start = content.lower().find("<svg")
+    end = content.lower().rfind("</svg>")
+    if start == -1 or end == -1:
+        fail(
+            "invalid_generated_output",
+            "Gemini did not return valid SVG source.",
+            "Retry the command. The svg command requires raw SVG, not explanations or file URLs.",
+        )
+    return content[start : end + len("</svg>")].strip() + "\n"
+
+
+def normalize_model_output(content: str, command: str) -> str:
     if command not in OUTPUT_TYPES:
         return content
-    lines = content.strip().splitlines()
-    if lines and lines[0].strip().startswith("```"):
-        lines = lines[1:]
-    if lines and lines[-1].strip() == "```":
-        lines = lines[:-1]
-    return "\n".join(lines).strip() + "\n"
+    if command == "html":
+        return normalize_html_output(content)
+    if command == "svg":
+        return normalize_svg_output(content)
+    return strip_code_fence(content) + "\n"
 
 
 def image_content_parts(images: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -677,7 +719,7 @@ def request_gemini(
             "Provider returned an empty response.",
             body[:1000],
         )
-    return strip_code_fence(content, command)
+    return normalize_model_output(content, command)
 
 
 def run_gemini(
