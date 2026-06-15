@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+share_dir="${GEMINI_DESIGNER_SHARE_DIR:-$HOME/.local/share/gemini-designer}"
+bin_dir="${GEMINI_DESIGNER_BIN_DIR:-$HOME/.local/bin}"
+config_dir="${GEMINI_DESIGNER_CONFIG_DIR:-$HOME/.config/gemini-designer}"
+
+mkdir -p "$share_dir" "$bin_dir" "$config_dir"
+
+install -m 0755 "$script_dir/gemini-designer" "$share_dir/gemini-designer"
+ln -sfn "$share_dir/gemini-designer" "$bin_dir/gemini-designer"
+
+config_path="$config_dir/config.toml"
+if [[ ! -f "$config_path" ]]; then
+  if [[ "$config_dir" == "$HOME/.config/gemini-designer" ]]; then
+    api_key_file='~/.config/gemini-designer/api_key'
+  else
+    api_key_file="$config_dir/api_key"
+  fi
+  umask 077
+  {
+    printf '%s\n' 'base_url = "https://zenmux.ai/api/v1"'
+    printf '%s\n' 'model = "google/gemini-3.1-pro-preview"'
+    printf 'api_key_file = "%s"\n' "$api_key_file"
+    printf '%s\n' 'output_dir = "outputs/gemini-designer"'
+    printf '%s\n' 'max_chars = 260000'
+    printf '%s\n' 'max_image_bytes = 8000000'
+  } > "$config_path"
+fi
+
+if [[ -f "$config_dir/api_key" ]]; then
+  chmod 600 "$config_dir/api_key"
+fi
+
+echo "installed_path=$bin_dir/gemini-designer"
+if ! command -v gemini-designer >/dev/null 2>&1; then
+  echo "path_warning=$bin_dir is not on PATH"
+fi

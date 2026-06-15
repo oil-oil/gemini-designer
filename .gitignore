@@ -1,1 +1,9 @@
 .runtime/
+outputs/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+config.toml
+api_key

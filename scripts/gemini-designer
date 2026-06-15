@@ -1,0 +1,614 @@
+#!/usr/bin/env python3
+"""Gemini Designer CLI."""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import datetime as dt
+import json
+import mimetypes
+import os
+import pathlib
+import sys
+from typing import Iterable
+import tomllib
+import urllib.error
+import urllib.request
+
+
+CONFIG_DIR = pathlib.Path(
+    os.environ.get("GEMINI_DESIGNER_CONFIG_DIR", "~/.config/gemini-designer")
+).expanduser()
+CONFIG_PATH = CONFIG_DIR / "config.toml"
+DEFAULT_API_KEY_FILE = CONFIG_DIR / "api_key"
+DEFAULT_BASE_URL = "https://zenmux.ai/api/v1"
+DEFAULT_MODEL = "google/gemini-3.1-pro-preview"
+DEFAULT_OUTPUT_DIR = pathlib.Path("outputs/gemini-designer")
+DEFAULT_MAX_CHARS = 260_000
+DEFAULT_MAX_IMAGE_BYTES = 8_000_000
+READABLE_OUTPUT_REQUIRED_COMMANDS = {"advise", "direction"}
+
+
+def fail(error: str, message: str, hint: str | None = None, code: int = 1) -> None:
+    print(f"error={error}", file=sys.stderr)
+    print(f"message={message}", file=sys.stderr)
+    if hint:
+        print(f"hint={hint}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+class DesignerArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        fail(
+            "invalid_args",
+            message,
+            f"Run `{self.prog} --help` for usage.",
+            code=2,
+        )
+
+
+BASE_RULES = """你是一个独立的视觉设计顾问。
+
+上下文：
+- 你是无状态的。
+- 你只能看到这次请求里的用户目标、文件内容和图片内容。
+- 不要假设自己知道项目、历史对话、截图、设计规范或未提供的文件。
+
+要求：
+- 不要迎合用户。
+- 不要写礼貌性夸奖，也不要为了严格而挑代码问题。
+- 不要复述文件内容。
+- 不要替用户证明已有方案正确。
+- 回答要简短、具体、容易执行。
+- 主要评价视觉效果、审美方向、设计意象、信息层级、阅读节奏和界面体验。
+- 可以引用文件里的元素作为证据，例如 section、组件、文案、selector 或 token，但不要把 CSS 规范和工程债作为主要问题。
+- 给优化建议时要足够具体，让实现者知道该改哪里、怎么改、为什么改。
+- 如果文件内容里能看出现有组件、class、selector、token、变量、布局模式或交互模式，优先建议沿用这些现有模式。
+- 不要建议另起一套视觉体系，不要建议新增无关组件或装饰。
+- 信息不足时，不要猜测。直接说明缺少什么，以及需要补充哪些文件或信息。
+- 不要推翻现有风格，除非文件本身显示这个风格已经无法支持目标。
+- 不要建议新增无关视觉装饰。
+"""
+
+
+COMMAND_PROMPTS = {
+    "advise": """任务：
+请基于用户目标、文件内容和图片内容，给出视觉设计优化建议。重点看整体观感、设计意象、阅读节奏、信息层级、情绪气质、界面完成度和用户感受。
+
+限制：
+- 不要输出完整 HTML。
+- 不要建议重写整页。
+- 不要建议主 Agent 另起一套组件、样式 token、布局系统或视觉语言。
+- 你不一定知道项目里有哪些组件；只能基于已提供文件笼统提醒主 Agent 优先查找并复用现有组件、class、selector、token、变量和样式模式。
+- 如果提供的文件里能明确看到可复用对象，可以指出它们；如果看不到，不要编造组件名。
+- 如果缺少足以判断的关键上下文，例如目标文件不完整、缺设计规范、缺 token/CSS、缺相关可见组件、缺产品目标，请先要求补充上下文，不要强行给视觉建议。
+
+如果缺少关键上下文，只输出：
+1. 需要补充上下文：说明无法可靠判断的原因。
+2. 建议补充的文件或信息：说明每项为什么需要。
+3. 重新发起建议：给出应重新运行的命令示例，使用 `gemini-designer advise ... -f ...` 或 `-i ...`。
+
+输出格式：
+1. 最影响设计效果的问题：按重要程度排序，说明证据和影响。
+2. 可执行修改建议：每条尽量包含：
+   - 位置：引用可定位的 section、组件、文案、selector、class、token 或截图区域。
+   - 复用提醒：提醒主 Agent 优先查找并复用现有组件、class、selector、token、变量或样式模式；如果文件中能明确看到可复用对象，再点名。
+   - 改法：给出具体数值、层级、间距、颜色、字体、阴影、边框、状态或布局建议。
+   - 伪代码：必要时给伪代码、CSS 片段或 JSX 结构片段，用于说明改法；长度以讲清楚为准，不要输出完整文件。
+   - 视觉收益：说明这样改会让观感、层级、节奏或一致性变好在哪里。
+   - 风险：指出可能影响的视觉或交互风险。
+3. 不建议动的地方：只写具体不该改的区域、组件、token、文案、视觉特征或交互状态，并说明为什么；不要重复概括设计方向。
+""",
+    "direction": """任务：
+请作为视觉设计总监，生成高质量设计意象 markdown。重点识别产品的转化关系、应避免的行业俗套、可执行的视觉隐喻、材质、构图、动效和字体气质。
+
+限制：
+- 不要输出完整 HTML。
+- 不要写代码。
+
+输出格式：
+1. 核心视觉判断：说明关键设计判断。
+2. 应避免的俗套：列出会削弱辨识度的方向。
+3. 候选视觉方向：每个包含隐喻、主体、材质、构图、动效、字体气质、适配原因和主要风险。
+4. 推荐方向：推荐最适合的方向，并说明原因。
+""",
+    "html": """任务：
+请创建一个自包含 HTML 设计稿。重点体现清晰的信息层级、有辨识度的视觉意象、完整的交互状态和成熟的界面完成度。
+
+输出要求：
+- 输出单个完整 HTML 文件，CSS 写在 <style>，JS 写在 <script>。
+- 不要使用外部依赖。
+- 使用真实感占位内容，不要使用 lorem ipsum。
+- 只输出 HTML 代码。
+""",
+    "svg": """任务：
+请创建一个干净、有表现力的 SVG 图标或简单插画。
+
+输出要求：
+- SVG 必须包含合理的 viewBox。
+- 结构清晰，适合直接保存或嵌入页面。
+- 只输出 SVG 代码。
+""",
+}
+
+FILE_REQUIRED_COMMANDS = {"advise"}
+FILE_ALLOWED_COMMANDS = {"advise", "direction"}
+OUTPUT_TYPES = {
+    "html": "html",
+    "svg": "svg",
+}
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = DesignerArgumentParser(
+        prog="gemini-designer",
+        description="Ask Gemini Designer through one stable CLI.",
+        epilog=(
+            "Commands: advise = existing UI files with -f; "
+            "direction = broad art direction, optionally with -f; "
+            "html = new standalone HTML only; "
+            "svg = new standalone SVG only; "
+            "auth status = show whether Gemini Designer is configured."
+        ),
+    )
+    parser.add_argument(
+        "command",
+        choices=sorted(COMMAND_PROMPTS),
+        help="Design task command.",
+    )
+    parser.add_argument(
+        "task",
+        nargs="?",
+        default="请完成这个视觉设计任务。",
+        help="User task.",
+    )
+    parser.add_argument(
+        "-f",
+        "--file",
+        action="append",
+        default=[],
+        help="File to include. Can be repeated.",
+    )
+    parser.add_argument(
+        "-i",
+        "--image",
+        action="append",
+        default=[],
+        help="Image to include as visual context. Can be repeated.",
+    )
+    parser.add_argument(
+        "-o",
+        "--out",
+        help="Output path. Required for advise and direction; use a readable markdown file name.",
+    )
+    parser.add_argument(
+        "--max-chars",
+        type=int,
+        default=None,
+        help=f"Maximum total file characters. Default: config or {DEFAULT_MAX_CHARS}.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Write the assembled prompt instead of calling Gemini.",
+    )
+    return parser.parse_args(argv)
+
+
+def require_readable_output(args: argparse.Namespace) -> None:
+    if args.command in READABLE_OUTPUT_REQUIRED_COMMANDS and not args.out:
+        input_example = " -f ./path/to/file" if args.command == "advise" else ""
+        fail(
+            "missing_output",
+            f"`{args.command}` requires -o with a readable markdown file name.",
+            f"Use: gemini-designer {args.command} \"your task\"{input_example} -o ./outputs/gemini-designer/readable-name.md",
+        )
+
+
+def load_config() -> dict[str, object]:
+    config: dict[str, object] = {
+        "api_key_file": str(DEFAULT_API_KEY_FILE),
+        "base_url": DEFAULT_BASE_URL,
+        "model": DEFAULT_MODEL,
+        "output_dir": str(DEFAULT_OUTPUT_DIR),
+        "max_chars": DEFAULT_MAX_CHARS,
+        "max_image_bytes": DEFAULT_MAX_IMAGE_BYTES,
+    }
+    if CONFIG_PATH.exists():
+        try:
+            data = tomllib.loads(CONFIG_PATH.read_text())
+        except tomllib.TOMLDecodeError as error:
+            fail(
+                "invalid_config",
+                f"Config file is not valid TOML: {CONFIG_PATH}",
+                f"Fix the TOML syntax. Details: {error}",
+            )
+        for key in config:
+            if key in data:
+                config[key] = data[key]
+    return config
+
+
+def resolve_path(value: object) -> pathlib.Path:
+    return pathlib.Path(str(value)).expanduser()
+
+
+def read_api_key(config: dict[str, object]) -> tuple[pathlib.Path, str | None]:
+    key_path = resolve_path(config["api_key_file"])
+    if not key_path.exists():
+        return key_path, None
+    key = key_path.read_text().strip()
+    return key_path, key or None
+
+
+def print_auth_status() -> int:
+    config = load_config()
+    _, key = read_api_key(config)
+    status = "authorized" if key else "missing"
+    print(f"status={status}")
+    return 0 if key else 1
+
+
+def handle_auth(argv: list[str]) -> int:
+    parser = DesignerArgumentParser(prog="gemini-designer auth")
+    parser.add_argument("command", choices=["status"])
+    args = parser.parse_args(argv)
+    if args.command == "status":
+        return print_auth_status()
+    return 2
+
+
+def read_file(path_text: str) -> tuple[pathlib.Path, str]:
+    path = pathlib.Path(path_text).expanduser()
+    if path_text.startswith("file://"):
+        path = pathlib.Path(path_text.removeprefix("file://"))
+    if not path.exists():
+        fail(
+            "file_not_found",
+            f"File does not exist: {path}",
+            "Check the path, or pass a valid file:// URL.",
+        )
+    if not path.is_file():
+        fail(
+            "not_a_file",
+            f"Path is not a file: {path}",
+            "Pass a text file with -f. Directories are not supported.",
+        )
+    try:
+        return path.resolve(), path.read_text()
+    except UnicodeDecodeError:
+        fail(
+            "not_utf8",
+            f"File is not UTF-8 text: {path}",
+            "Pass source files, HTML, CSS, TSX, or markdown text files.",
+        )
+
+
+def resolve_input_path(path_text: str) -> pathlib.Path:
+    path = pathlib.Path(path_text).expanduser()
+    if path_text.startswith("file://"):
+        path = pathlib.Path(path_text.removeprefix("file://"))
+    return path
+
+
+def read_image(path_text: str, max_image_bytes: int) -> dict[str, object]:
+    path = resolve_input_path(path_text)
+    if not path.exists():
+        fail(
+            "image_not_found",
+            f"Image does not exist: {path}",
+            "Check the path, or pass a valid file:// URL.",
+        )
+    if not path.is_file():
+        fail(
+            "not_an_image_file",
+            f"Path is not a file: {path}",
+            "Pass an image file with -i, such as PNG, JPEG, WebP, or GIF.",
+        )
+    mime, _ = mimetypes.guess_type(path.name)
+    if not mime or not mime.startswith("image/"):
+        fail(
+            "unsupported_image",
+            f"Unsupported image type: {path}",
+            "Pass PNG, JPEG, WebP, GIF, or another image file with a known extension.",
+        )
+    data = path.read_bytes()
+    if len(data) > max_image_bytes:
+        fail(
+            "image_too_large",
+            f"Image is too large: {path} ({len(data)} bytes). Limit: {max_image_bytes} bytes.",
+            "Use a smaller screenshot or increase `max_image_bytes` in the config.",
+        )
+    return {"path": path.resolve(), "mime": mime, "data": data}
+
+
+def build_files_text(files: Iterable[tuple[pathlib.Path, str]], max_chars: int) -> str:
+    parts: list[str] = []
+    total = 0
+    file_list = list(files)
+
+    for path, content in file_list:
+        total += len(content)
+        if total > max_chars:
+            fail(
+                "context_too_large",
+                f"Included files are too large. Limit: {max_chars} chars. Current total: {total} chars.",
+                "Pass fewer files, increase --max-chars, or choose representative design-system files.",
+            )
+
+    if len(file_list) == 1:
+        return file_list[0][1]
+
+    for path, content in file_list:
+        parts.append(f"\n--- FILE: {path} ---\n")
+        parts.append(content)
+        parts.append("\n")
+    return "\n".join(parts)
+
+
+def build_image_manifest(images: Iterable[dict[str, object]]) -> str:
+    return "\n".join(
+        f"- {image['path']} ({image['mime']}, {len(image['data'])} bytes)"
+        for image in images
+    )
+
+
+def build_prompt(
+    args: argparse.Namespace,
+    max_chars: int,
+    images: list[dict[str, object]],
+) -> tuple[str, list[tuple[pathlib.Path, str]]]:
+    files = [read_file(path) for path in args.file]
+    if args.command in FILE_REQUIRED_COMMANDS and not files and not images:
+        fail(
+            "missing_file",
+            f"`{args.command}` requires at least one file or image.",
+            f"Use: gemini-designer {args.command} \"your task\" -f ./path/to/file or -i ./screenshot.png",
+        )
+    if files and args.command not in FILE_ALLOWED_COMMANDS:
+        fail(
+            "files_not_allowed",
+            f"`{args.command}` does not accept files.",
+            "Use `gemini-designer advise -f` for existing UI files, or `gemini-designer direction -f` for broad art direction from context.",
+        )
+
+    prompt_parts = [
+        BASE_RULES.strip(),
+        COMMAND_PROMPTS[args.command].strip(),
+        "用户目标：",
+        args.task.strip(),
+    ]
+
+    if files:
+        file_content = build_files_text(files, max_chars)
+        prompt_parts.extend(["文件内容：", file_content])
+    if images:
+        prompt_parts.extend(["图片补充：", build_image_manifest(images)])
+
+    return "\n\n".join(prompt_parts), files
+
+
+def original_prompt_appendix(
+    args: argparse.Namespace,
+    files: list[tuple[pathlib.Path, str]],
+    images: list[dict[str, object]],
+) -> str:
+    if args.command not in READABLE_OUTPUT_REQUIRED_COMMANDS:
+        return ""
+
+    task = args.task.strip().replace("```", "'''")
+    lines = [
+        "",
+        "---",
+        "",
+        "## 原始提示词",
+        "",
+        "```text",
+        task,
+        "```",
+    ]
+    if files:
+        lines.extend(["", "### 引用文件"])
+        lines.extend(f"- {path}" for path, _ in files)
+    if images:
+        lines.extend(["", "### 引用图片"])
+        lines.extend(
+            f"- {image['path']} ({image['mime']}, {len(image['data'])} bytes)"
+            for image in images
+        )
+    return "\n".join(lines) + "\n"
+
+
+def output_extension(command: str) -> str:
+    return OUTPUT_TYPES.get(command, "md")
+
+
+def default_output_path(command: str, output_dir: pathlib.Path) -> pathlib.Path:
+    timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    return output_dir / f"{timestamp}-{command}.{output_extension(command)}"
+
+
+def system_prompt(command: str) -> str:
+    if command == "html":
+        return "You are a talented UI/web designer. Output only a single self-contained HTML file."
+    if command == "svg":
+        return "You are a talented icon and illustration designer. Output only valid SVG."
+    return "You are an independent visual design advisor. Respond in the same language as the user."
+
+
+def strip_code_fence(content: str, command: str) -> str:
+    if command not in OUTPUT_TYPES:
+        return content
+    lines = content.strip().splitlines()
+    if lines and lines[0].strip().startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines).strip() + "\n"
+
+
+def image_content_parts(images: list[dict[str, object]]) -> list[dict[str, object]]:
+    parts = []
+    for image in images:
+        encoded = base64.b64encode(image["data"]).decode("ascii")
+        parts.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{image['mime']};base64,{encoded}",
+                },
+            }
+        )
+    return parts
+
+
+def user_message_content(prompt: str, images: list[dict[str, object]]) -> object:
+    if not images:
+        return prompt
+    return [{"type": "text", "text": prompt}, *image_content_parts(images)]
+
+
+def request_gemini(
+    prompt: str,
+    command: str,
+    config: dict[str, object],
+    api_key: str,
+    images: list[dict[str, object]],
+) -> str:
+    base_url = str(config["base_url"]).rstrip("/")
+    request = urllib.request.Request(
+        f"{base_url}/chat/completions",
+        data=json.dumps(
+            {
+                "model": str(config["model"]),
+                "messages": [
+                    {"role": "system", "content": system_prompt(command)},
+                    {"role": "user", "content": user_message_content(prompt, images)},
+                ],
+            }
+        ).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=300) as response:
+            body = response.read().decode("utf-8")
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")
+        fail(
+            "api_http_error",
+            f"Gemini provider returned HTTP {error.code}.",
+            detail[:1000],
+        )
+    except urllib.error.URLError as error:
+        fail(
+            "api_request_failed",
+            f"API request failed: {error.reason}",
+            "Check network access or provider configuration.",
+        )
+
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        fail(
+            "invalid_api_response",
+            "Provider returned a response that is not valid JSON.",
+            body[:1000],
+        )
+    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    if not content:
+        fail(
+            "empty_api_response",
+            "Provider returned an empty response.",
+            body[:1000],
+        )
+    return strip_code_fence(content, command)
+
+
+def run_gemini(
+    prompt: str,
+    args: argparse.Namespace,
+    out_path: pathlib.Path,
+    config: dict[str, object],
+    images: list[dict[str, object]],
+    files: list[tuple[pathlib.Path, str]],
+) -> None:
+    _, api_key = read_api_key(config)
+    if not api_key:
+        fail(
+            "not_authorized",
+            "Gemini Designer is not authorized.",
+            "Run `gemini-designer auth status`. Ask the user to configure authorization outside the agent.",
+        )
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        fail(
+            "output_dir_failed",
+            f"Could not create output directory: {out_path.parent}",
+            str(error),
+        )
+    content = request_gemini(prompt, args.command, config, api_key, images)
+    content += original_prompt_appendix(args, files, images)
+    try:
+        out_path.write_text(content)
+    except OSError as error:
+        fail(
+            "output_write_failed",
+            f"Could not write output file: {out_path}",
+            str(error),
+        )
+    print(f"output_path={out_path}")
+
+
+def main(argv: list[str]) -> int:
+    if argv[:1] == ["auth"]:
+        return handle_auth(argv[1:])
+
+    config = load_config()
+    args = parse_args(argv)
+    require_readable_output(args)
+    try:
+        max_chars = args.max_chars if args.max_chars is not None else int(config["max_chars"])
+    except (TypeError, ValueError):
+        fail(
+            "invalid_config",
+            "`max_chars` must be an integer.",
+            "Fix ~/.config/gemini-designer/config.toml or pass --max-chars.",
+        )
+    try:
+        max_image_bytes = int(config["max_image_bytes"])
+    except (TypeError, ValueError):
+        fail(
+            "invalid_config",
+            "`max_image_bytes` must be an integer.",
+            "Fix ~/.config/gemini-designer/config.toml.",
+        )
+    images = [read_image(path, max_image_bytes) for path in args.image]
+    prompt, files = build_prompt(args, max_chars, images)
+    output_dir = resolve_path(config["output_dir"])
+    out_path = pathlib.Path(args.out).expanduser() if args.out else default_output_path(args.command, output_dir)
+
+    if args.dry_run:
+        try:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(prompt)
+        except OSError as error:
+            fail(
+                "output_write_failed",
+                f"Could not write dry-run prompt file: {out_path}",
+                str(error),
+            )
+        print(f"prompt_path={out_path}")
+        return 0
+
+    run_gemini(prompt, args, out_path, config, images, files)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
