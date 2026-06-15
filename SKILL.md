@@ -39,12 +39,14 @@ Commands:
 
 - `gemini-designer advise` — Use for existing HTML/CSS/TSX or design files. Requires `-f` or `-i`, and requires a readable markdown file name with `-o`. Gemini gives concrete implementation-oriented visual suggestions, reuse reminders, and pseudo-code snippets when useful. Use this for small refinements and project-style consistency.
 - `gemini-designer direction` — Use before implementation when the task needs a stronger idea, art direction, visual metaphor, design imagery markdown, or high-level design direction. Files are optional. Always provide a readable markdown file name with `-o`.
-- `gemini-designer html` — Use only for a new standalone HTML mockup or concept page. Do not use it to revise an existing HTML file.
-- `gemini-designer svg` — Use only for a new SVG icon or simple illustration.
+- `gemini-designer html` — Use for a new standalone HTML mockup or concept page. It may include `-f` and `-i` as reference context, but do not use it to directly revise an existing project file.
+- `gemini-designer svg` — Use for a new SVG icon or simple illustration. It may include `-f` and `-i` as reference context.
 
 Use complete files with `gemini-designer advise` by default. Do not summarize, slice, or annotate the file unless the file is too large for the CLI limit or the user asks for a scoped review.
 
 For `advise` and `direction`, always name the markdown file at call time with `-o`. Prefer a bare readable filename, such as `accounts-filter-advice.md`, `museon-home-art-direction.md`, or `pricing-page-design-imagery.md`; the CLI saves bare names under `.gemini-designer/`. Use an explicit path only when a specific directory is required.
+
+For `html` and `svg`, pass files with `-f` when Gemini should reference existing content, design rules, previous mockups, theme tokens, or example components. Treat those files as context for generating a new artifact, not as files Gemini will patch in place.
 
 ## Context Rules
 
@@ -109,8 +111,8 @@ gemini-designer advise "给这个设计规范页提视觉优化建议" -f ./desi
 gemini-designer advise "结合截图给这个页面提视觉优化建议" -f ./design.html -i ./screenshots/current.png -o page-screenshot-advice.md
 gemini-designer direction "给这个产品生成设计意象 markdown" -o product-design-imagery.md
 gemini-designer direction "基于这个页面提炼更强的视觉意象" -f ./design.html -o page-design-imagery.md
-gemini-designer html "生成一个自包含的活动页设计稿" -o ./designs/page.html
-gemini-designer svg "生成一个设置图标" -o ./icons/settings.svg
+gemini-designer html "参考现有设计规范生成一个自包含的活动页设计稿" -f ./design.html -o ./designs/page.html
+gemini-designer svg "参考品牌规范生成一个设置图标" -f ./brand.md -o ./icons/settings.svg
 ```
 
 Read the output file before acting. Apply only the suggestions that fit the project.
@@ -166,7 +168,7 @@ Follow the `hint` when it is actionable. If `error=not_authorized`, stop and tel
 2. Run `gemini-designer` with a readable `-o` path and get an `output_path` before writing the final answer or artifact.
 3. For existing files, call `gemini-designer advise` with full file input. Do not prepend your own analysis.
 4. For design imagery markdown or visual direction, call `gemini-designer direction`.
-5. For new HTML/SVG artifacts, call `gemini-designer html` or `gemini-designer svg`.
+5. For new HTML/SVG artifacts, call `gemini-designer html` or `gemini-designer svg`; include `-f` or `-i` when reference context matters.
 6. Read Gemini's output.
 7. If `advise` says more context is needed, gather the requested context and rerun `gemini-designer advise` once before presenting advice to the user. If the context is unavailable, ask the user for it.
 8. When implementing `advise` output, first look for existing project components, selectors, classes, tokens, variables, and layout patterns to reuse. If Gemini suggests replacing a broad system or inventing unrelated UI, narrow it to existing patterns before editing.

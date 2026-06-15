@@ -141,7 +141,6 @@ COMMAND_PROMPTS = {
 }
 
 FILE_REQUIRED_COMMANDS = {"advise"}
-FILE_ALLOWED_COMMANDS = {"advise", "direction"}
 OUTPUT_TYPES = {
     "html": "html",
     "svg": "svg",
@@ -155,8 +154,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         epilog=(
             "Commands: advise = existing UI files with -f; "
             "direction = broad art direction, optionally with -f; "
-            "html = new standalone HTML only; "
-            "svg = new standalone SVG only; "
+            "html = new standalone HTML, optionally with -f; "
+            "svg = new standalone SVG, optionally with -f; "
             "auth status = show whether Gemini Designer is configured."
         ),
     )
@@ -522,13 +521,6 @@ def build_prompt(
             f"`{args.command}` requires at least one file or image.",
             f"Use: gemini-designer {args.command} \"your task\" -f ./path/to/file or -i ./screenshot.png",
         )
-    if files and args.command not in FILE_ALLOWED_COMMANDS:
-        fail(
-            "files_not_allowed",
-            f"`{args.command}` does not accept files.",
-            "Use `gemini-designer advise -f` for existing UI files, or `gemini-designer direction -f` for broad art direction from context.",
-        )
-
     prompt_parts = [
         BASE_RULES.strip(),
         COMMAND_PROMPTS[args.command].strip(),
