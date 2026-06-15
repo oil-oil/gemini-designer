@@ -187,4 +187,5 @@ Follow the `hint` when it is actionable. If `error=not_authorized`, stop and tel
 - If the user did not specify a style, color, font, layout, metaphor, or visual direction, do not invent one in the prompt.
 - Only pass explicit user preferences (e.g. "dark mode", "use blue") when the user actually said so.
 - When the task asks for design insight, direction, or an HTML mockup, do not ask Gemini for long explanatory copy. Let Gemini express ideas through visible UI structure, states, examples, hierarchy, and interaction when possible.
+- Do not translate "more designed" into visual noise. Strong visual treatment should support key actions, brand memory, and key content entry points; supporting areas should stay quiet, stable, and easy to scan.
 - Chinese prompts work well — Gemini responds in the same language.
