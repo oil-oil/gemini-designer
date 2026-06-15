@@ -36,6 +36,8 @@ If the shell reports `command not found`, resolve `/path/to/this-skill` to the d
 
 If the CLI returns `error=not_authorized`, stop and tell the user Gemini Designer is not authorized. Do not read, copy, print, or manage API keys.
 
+Each command has its own built-in prompt. Choose the right command and pass the user's task plainly; do not add a cross-command prompt framework or extra output rules unless the user explicitly gave them.
+
 Commands:
 
 - `gemini-designer advise` — Use for visual design advice. It may include `-f` and `-i` as reference context, and requires a readable markdown file name with `-o`. Gemini gives concrete implementation-oriented visual suggestions, reuse reminders, and pseudo-code snippets when useful. Use this for small refinements and project-style consistency.
@@ -184,4 +186,5 @@ Follow the `hint` when it is actionable. If `error=not_authorized`, stop and tel
 - Keep the task prompt close to the user's request.
 - If the user did not specify a style, color, font, layout, metaphor, or visual direction, do not invent one in the prompt.
 - Only pass explicit user preferences (e.g. "dark mode", "use blue") when the user actually said so.
+- When the task asks for design insight, direction, or an HTML mockup, do not ask Gemini for long explanatory copy. Let Gemini express ideas through visible UI structure, states, examples, hierarchy, and interaction when possible.
 - Chinese prompts work well — Gemini responds in the same language.
