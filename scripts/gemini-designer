@@ -10,7 +10,10 @@ import json
 import mimetypes
 import os
 import pathlib
+import shutil
+import subprocess
 import sys
+import tempfile
 from typing import Iterable
 import tomllib
 import urllib.error
@@ -27,6 +30,11 @@ DEFAULT_MODEL = "google/gemini-3.1-pro-preview"
 DEFAULT_OUTPUT_DIR = pathlib.Path("outputs/gemini-designer")
 DEFAULT_MAX_CHARS = 260_000
 DEFAULT_MAX_IMAGE_BYTES = 8_000_000
+DEFAULT_IMAGE_OPTIMIZE = True
+DEFAULT_IMAGE_FORMAT = "webp"
+DEFAULT_IMAGE_WEBP_LOSSLESS = True
+DEFAULT_IMAGE_WEBP_QUALITY = 86
+DEFAULT_IMAGE_MAX_LONG_EDGE = 2200
 READABLE_OUTPUT_REQUIRED_COMMANDS = {"advise", "direction"}
 
 
@@ -214,6 +222,11 @@ def load_config() -> dict[str, object]:
         "output_dir": str(DEFAULT_OUTPUT_DIR),
         "max_chars": DEFAULT_MAX_CHARS,
         "max_image_bytes": DEFAULT_MAX_IMAGE_BYTES,
+        "image_optimize": DEFAULT_IMAGE_OPTIMIZE,
+        "image_format": DEFAULT_IMAGE_FORMAT,
+        "image_webp_lossless": DEFAULT_IMAGE_WEBP_LOSSLESS,
+        "image_webp_quality": DEFAULT_IMAGE_WEBP_QUALITY,
+        "image_max_long_edge": DEFAULT_IMAGE_MAX_LONG_EDGE,
     }
     if CONFIG_PATH.exists():
         try:
@@ -232,6 +245,34 @@ def load_config() -> dict[str, object]:
 
 def resolve_path(value: object) -> pathlib.Path:
     return pathlib.Path(str(value)).expanduser()
+
+
+def config_bool(config: dict[str, object], key: str) -> bool:
+    value = config[key]
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    fail(
+        "invalid_config",
+        f"`{key}` must be a boolean.",
+        "Fix ~/.config/gemini-designer/config.toml.",
+    )
+
+
+def config_int(config: dict[str, object], key: str) -> int:
+    try:
+        return int(config[key])
+    except (TypeError, ValueError):
+        fail(
+            "invalid_config",
+            f"`{key}` must be an integer.",
+            "Fix ~/.config/gemini-designer/config.toml.",
+        )
 
 
 def read_api_key(config: dict[str, object]) -> tuple[pathlib.Path, str | None]:
@@ -292,7 +333,99 @@ def resolve_input_path(path_text: str) -> pathlib.Path:
     return path
 
 
-def read_image(path_text: str, max_image_bytes: int) -> dict[str, object]:
+def image_dimensions(path: pathlib.Path) -> tuple[int, int] | None:
+    sips = shutil.which("sips")
+    if not sips:
+        return None
+    try:
+        result = subprocess.run(
+            [sips, "-g", "pixelWidth", "-g", "pixelHeight", str(path)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    width = height = None
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("pixelWidth:"):
+            width = int(stripped.split(":", 1)[1].strip())
+        elif stripped.startswith("pixelHeight:"):
+            height = int(stripped.split(":", 1)[1].strip())
+    if width and height:
+        return width, height
+    return None
+
+
+def resize_for_long_edge(path: pathlib.Path, max_long_edge: int) -> tuple[int, int] | None:
+    if max_long_edge <= 0:
+        return None
+    dimensions = image_dimensions(path)
+    if not dimensions:
+        return None
+    width, height = dimensions
+    long_edge = max(width, height)
+    if long_edge <= max_long_edge:
+        return None
+    scale = max_long_edge / long_edge
+    return max(1, round(width * scale)), max(1, round(height * scale))
+
+
+def optimize_image_to_webp(
+    path: pathlib.Path,
+    data: bytes,
+    mime: str,
+    config: dict[str, object],
+) -> dict[str, object] | None:
+    if not config_bool(config, "image_optimize"):
+        return None
+    if str(config["image_format"]).strip().lower() != "webp":
+        return None
+    if mime in {"image/webp", "image/gif"}:
+        return None
+    cwebp = shutil.which("cwebp")
+    if not cwebp:
+        return None
+
+    lossless = config_bool(config, "image_webp_lossless")
+    quality = config_int(config, "image_webp_quality")
+    max_long_edge = config_int(config, "image_max_long_edge")
+    with tempfile.TemporaryDirectory(prefix="gemini-designer-image-") as tmpdir:
+        out_path = pathlib.Path(tmpdir) / "optimized.webp"
+        command = [cwebp, "-quiet"]
+        resize = resize_for_long_edge(path, max_long_edge)
+        if resize:
+            command.extend(["-resize", str(resize[0]), str(resize[1])])
+        if lossless:
+            command.append("-lossless")
+        else:
+            command.extend(["-q", str(quality)])
+        command.extend([str(path), "-o", str(out_path)])
+        try:
+            subprocess.run(
+                command,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            optimized_data = out_path.read_bytes()
+        except (OSError, subprocess.CalledProcessError):
+            return None
+
+    if len(optimized_data) >= len(data) and not resize:
+        return None
+    return {
+        "mime": "image/webp",
+        "data": optimized_data,
+        "optimized": True,
+        "optimized_format": "webp",
+        "resized": bool(resize),
+    }
+
+
+def read_image(path_text: str, config: dict[str, object]) -> dict[str, object]:
     path = resolve_input_path(path_text)
     if not path.exists():
         fail(
@@ -313,14 +446,28 @@ def read_image(path_text: str, max_image_bytes: int) -> dict[str, object]:
             f"Unsupported image type: {path}",
             "Pass PNG, JPEG, WebP, GIF, or another image file with a known extension.",
         )
+    resolved_path = path.resolve()
     data = path.read_bytes()
-    if len(data) > max_image_bytes:
+    image: dict[str, object] = {
+        "path": resolved_path,
+        "source_mime": mime,
+        "source_bytes": len(data),
+        "mime": mime,
+        "data": data,
+        "optimized": False,
+    }
+    optimized = optimize_image_to_webp(resolved_path, data, mime, config)
+    if optimized:
+        image.update(optimized)
+    max_image_bytes = config_int(config, "max_image_bytes")
+    sent_bytes = len(image["data"])
+    if sent_bytes > max_image_bytes:
         fail(
             "image_too_large",
-            f"Image is too large: {path} ({len(data)} bytes). Limit: {max_image_bytes} bytes.",
-            "Use a smaller screenshot or increase `max_image_bytes` in the config.",
+            f"Image is too large after optimization: {resolved_path} ({sent_bytes} bytes). Limit: {max_image_bytes} bytes.",
+            "Use a smaller screenshot, pass fewer images, or increase `max_image_bytes` in the config.",
         )
-    return {"path": path.resolve(), "mime": mime, "data": data}
+    return image
 
 
 def build_files_text(files: Iterable[tuple[pathlib.Path, str]], max_chars: int) -> str:
@@ -348,10 +495,19 @@ def build_files_text(files: Iterable[tuple[pathlib.Path, str]], max_chars: int) 
 
 
 def build_image_manifest(images: Iterable[dict[str, object]]) -> str:
-    return "\n".join(
-        f"- {image['path']} ({image['mime']}, {len(image['data'])} bytes)"
-        for image in images
-    )
+    lines = []
+    for image in images:
+        source_mime = image.get("source_mime", image["mime"])
+        source_bytes = int(image.get("source_bytes", len(image["data"])))
+        sent_bytes = len(image["data"])
+        if image.get("optimized"):
+            details = f"{source_mime}, {source_bytes} bytes; sent {image['mime']}, {sent_bytes} bytes"
+            if image.get("resized"):
+                details += "; resized"
+            lines.append(f"- {image['path']} ({details})")
+        else:
+            lines.append(f"- {image['path']} ({image['mime']}, {sent_bytes} bytes)")
+    return "\n".join(lines)
 
 
 def build_prompt(
@@ -413,10 +569,7 @@ def original_prompt_appendix(
         lines.extend(f"- {path}" for path, _ in files)
     if images:
         lines.extend(["", "### 引用图片"])
-        lines.extend(
-            f"- {image['path']} ({image['mime']}, {len(image['data'])} bytes)"
-            for image in images
-        )
+        lines.extend(build_image_manifest(images).splitlines())
     return "\n".join(lines) + "\n"
 
 
@@ -580,15 +733,7 @@ def main(argv: list[str]) -> int:
             "`max_chars` must be an integer.",
             "Fix ~/.config/gemini-designer/config.toml or pass --max-chars.",
         )
-    try:
-        max_image_bytes = int(config["max_image_bytes"])
-    except (TypeError, ValueError):
-        fail(
-            "invalid_config",
-            "`max_image_bytes` must be an integer.",
-            "Fix ~/.config/gemini-designer/config.toml.",
-        )
-    images = [read_image(path, max_image_bytes) for path in args.image]
+    images = [read_image(path, config) for path in args.image]
     prompt, files = build_prompt(args, max_chars, images)
     output_dir = resolve_path(config["output_dir"])
     out_path = pathlib.Path(args.out).expanduser() if args.out else default_output_path(args.command, output_dir)

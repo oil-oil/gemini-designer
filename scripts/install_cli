@@ -26,6 +26,11 @@ if [[ ! -f "$config_path" ]]; then
     printf '%s\n' 'output_dir = "outputs/gemini-designer"'
     printf '%s\n' 'max_chars = 260000'
     printf '%s\n' 'max_image_bytes = 8000000'
+    printf '%s\n' 'image_optimize = true'
+    printf '%s\n' 'image_format = "webp"'
+    printf '%s\n' 'image_webp_lossless = true'
+    printf '%s\n' 'image_webp_quality = 86'
+    printf '%s\n' 'image_max_long_edge = 2200'
   } > "$config_path"
 fi
 
