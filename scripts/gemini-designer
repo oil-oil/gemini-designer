@@ -188,7 +188,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "-o",
         "--out",
-        help="Output path. Required for advise and direction; use a readable markdown file name.",
+        help="Output name or path. Bare file names are saved under the configured output_dir.",
     )
     parser.add_argument(
         "--max-chars",
@@ -210,7 +210,7 @@ def require_readable_output(args: argparse.Namespace) -> None:
         fail(
             "missing_output",
             f"`{args.command}` requires -o with a readable markdown file name.",
-            f"Use: gemini-designer {args.command} \"your task\"{input_example} -o ./.gemini-designer/readable-name.md",
+            f"Use: gemini-designer {args.command} \"your task\"{input_example} -o readable-name.md",
         )
 
 
@@ -582,6 +582,20 @@ def default_output_path(command: str, output_dir: pathlib.Path) -> pathlib.Path:
     return output_dir / f"{timestamp}-{command}.{output_extension(command)}"
 
 
+def resolve_output_path(args: argparse.Namespace, output_dir: pathlib.Path) -> pathlib.Path:
+    if not args.out:
+        return default_output_path(args.command, output_dir)
+    requested = pathlib.Path(args.out).expanduser()
+    has_directory = (
+        requested.is_absolute()
+        or "/" in args.out
+        or (os.altsep is not None and os.altsep in args.out)
+    )
+    if has_directory:
+        return requested
+    return output_dir / requested
+
+
 def system_prompt(command: str) -> str:
     if command == "html":
         return "You are a talented UI/web designer. Output only a single self-contained HTML file."
@@ -736,7 +750,7 @@ def main(argv: list[str]) -> int:
     images = [read_image(path, config) for path in args.image]
     prompt, files = build_prompt(args, max_chars, images)
     output_dir = resolve_path(config["output_dir"])
-    out_path = pathlib.Path(args.out).expanduser() if args.out else default_output_path(args.command, output_dir)
+    out_path = resolve_output_path(args, output_dir)
 
     if args.dry_run:
         try:
