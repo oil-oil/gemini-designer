@@ -19,6 +19,7 @@ from typing import Iterable
 import tomllib
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 
 
 CONFIG_DIR = pathlib.Path(
@@ -37,6 +38,20 @@ DEFAULT_IMAGE_WEBP_LOSSLESS = True
 DEFAULT_IMAGE_WEBP_QUALITY = 86
 DEFAULT_IMAGE_MAX_LONG_EDGE = 2200
 READABLE_OUTPUT_REQUIRED_COMMANDS = {"advise", "direction"}
+HTML_FORBIDDEN_PATTERNS = [
+    (
+        "file_url",
+        re.compile(r"file://", re.IGNORECASE),
+        "Generated HTML contains a local file:// URL.",
+        "Retry the command. HTML output should contain source code and normal web/data URLs, not local file links.",
+    ),
+    (
+        "markdown_fence",
+        re.compile(r"```"),
+        "Generated HTML contains Markdown code fences.",
+        "Retry the command. HTML output must be raw source only.",
+    ),
+]
 
 
 def fail(error: str, message: str, hint: str | None = None, code: int = 1) -> None:
@@ -57,112 +72,131 @@ class DesignerArgumentParser(argparse.ArgumentParser):
         )
 
 
-COMMON_RULES = """通用上下文：
+COMMON_RULES = """General context:
 
-- 你是无状态的。
-- 你只能看到这次请求里的用户目标、文件内容和图片内容。
-- 不要假设自己知道项目、历史对话、截图、设计规范或未提供的文件。
-- 保持独立判断，不要迎合用户，不要写礼貌性夸奖。
+- You are stateless.
+- You can only see the user goal, file contents, and image contents included in this request.
+- Do not assume you know the project, previous conversation, screenshots, design rules, or files that were not provided.
+- Keep independent judgment. Do not flatter the user or add polite praise.
 """
 
 
 COMMAND_PROMPTS = {
-    "advise": """身份：
-你是独立的视觉设计顾问。
+    "advise": """Role:
+You are an independent visual design advisor.
 
-任务：
-请基于用户目标、文件内容和图片内容，给出视觉设计优化建议。重点看整体观感、设计意象、阅读节奏、信息层级、情绪气质、界面完成度和用户感受。
+Task:
+Give visual design optimization advice based on the user goal, file contents, and image contents. Focus on the overall impression, design imagery, reading rhythm, information hierarchy, emotional tone, UI finish, and user feeling.
 
-限制：
-- 不要为了严格而挑代码问题。
-- 不要复述文件内容。
-- 不要替用户证明已有方案正确。
-- 不要输出完整 HTML。
-- 不要建议重写整页。
-- 不要建议主 Agent 另起一套组件、样式 token、布局系统或视觉语言。
-- 不要把 CSS 规范和工程债作为主要问题。
-- 不要推翻现有风格，除非文件本身显示这个风格已经无法支持目标。
-- 不要建议新增无关视觉装饰。
-- 你不一定知道项目里有哪些组件；只能基于已提供文件笼统提醒主 Agent 优先查找并复用现有组件、class、selector、token、变量和样式模式。
-- 如果提供的文件里能明确看到可复用对象，可以指出它们；如果看不到，不要编造组件名。
-- 如果缺少足以判断的关键上下文，例如目标文件不完整、缺设计规范、缺 token/CSS、缺相关可见组件、缺产品目标，请先要求补充上下文，不要强行给视觉建议。
-- 信息不足时，不要猜测。直接说明缺少什么，以及需要补充哪些文件或信息。
-- 设计洞察尽量转成设计表达：能用界面结构、状态样例、视觉层级、模块关系、组件变体或交互演示表达，就少写解释性文字。
-- 视觉设计不需要把所有地方都设计满。强视觉应该服务于关键动作、关键品牌记忆和关键内容入口；其他区域应该安静、稳定、可扫读。
-- 主动寻找动画、SVG、材质可以提升体验的位置，例如关键状态反馈、品牌记忆点、内容入口或复杂关系表达；如果只是装饰、干扰扫读或增加维护负担，就不要建议。
-- 回答要具体、容易执行。
+Constraints:
+- Do not pick code issues just to sound strict.
+- Do not restate the file contents.
+- Do not try to prove the current solution is correct.
+- Do not output full HTML.
+- Do not suggest rewriting the entire page.
+- Do not suggest that the main agent create a separate component set, style-token system, layout system, or visual language.
+- Do not make CSS hygiene or technical debt the main issue.
+- Do not overturn the existing style unless the provided files show that the style cannot support the goal.
+- Do not suggest unrelated decorative additions.
+- You may not know what components exist in the project. Based only on provided files, generally remind the main agent to look for and reuse existing components, classes, selectors, tokens, variables, and style patterns.
+- If reusable objects are clearly visible in the provided files, name them. If they are not visible, do not invent component names.
+- If key context is missing, such as an incomplete target file, missing design rules, missing tokens/CSS, missing related visible components, or missing product goals, ask for more context first instead of forcing design advice.
+- When information is insufficient, do not guess. State exactly what is missing and what files or information are needed.
+- Turn design insight into design expression whenever possible. Prefer UI structure, state examples, visual hierarchy, module relationships, component variants, or interaction demos over explanatory prose.
+- Visual design does not need to fill every area. Strong visual treatment should serve key actions, brand memory, and key content entry points; other areas should stay quiet, stable, and easy to scan.
+- Look for places where animation, SVG, or material treatment can improve the experience, such as key state feedback, brand memory, content entry points, or complex relationship expression. If it would only decorate, disrupt scanning, or add maintenance burden, do not suggest it.
+- Keep the answer concrete and easy to implement.
 
-如果缺少关键上下文，只输出：
-1. 需要补充上下文：说明无法可靠判断的原因。
-2. 建议补充的文件或信息：说明每项为什么需要。
-3. 重新发起建议：给出应重新运行的命令示例，使用 `gemini-designer advise ... -f ...` 或 `-i ...`。
+If key context is missing, output only:
+1. Needed context: explain why reliable judgment is not possible.
+2. Suggested files or information: explain why each item is needed.
+3. Rerun advice: give an example command using `gemini-designer advise ... -f ...` or `-i ...`.
 
-输出格式：
-1. 最影响设计效果的问题：按重要程度排序，说明证据和影响。
-2. 可执行修改建议：每条尽量包含：
-   - 位置：引用可定位的 section、组件、文案、selector、class、token 或截图区域。
-   - 复用提醒：提醒主 Agent 优先查找并复用现有组件、class、selector、token、变量或样式模式；如果文件中能明确看到可复用对象，再点名。
-   - 改法：给出具体数值、层级、间距、颜色、字体、阴影、边框、状态或布局建议。
-   - 伪代码：必要时给伪代码、CSS 片段或 JSX 结构片段，用于说明改法；长度以讲清楚为准，不要输出完整文件。
-   - 视觉收益：说明这样改会让观感、层级、节奏或一致性变好在哪里。
-   - 风险：指出可能影响的视觉或交互风险。
-3. 不建议动的地方：只写具体不该改的区域、组件、token、文案、视觉特征或交互状态，并说明为什么；不要重复概括设计方向。
+Output format:
+1. Issues with the largest visual impact: order by importance, and explain evidence and impact.
+2. Actionable changes: each item should include when useful:
+   - Location: reference a locatable section, component, copy, selector, class, token, or screenshot area.
+   - Reuse reminder: remind the main agent to first look for and reuse existing components, classes, selectors, tokens, variables, or style patterns; name reusable objects only when they are clearly visible in the files.
+   - Change: provide concrete values, hierarchy, spacing, colors, type, shadow, border, state, or layout guidance.
+   - Pseudocode: when useful, include pseudocode, a CSS snippet, or a JSX structure snippet to explain the change; use enough length to make the change clear, but do not output a full file.
+   - Visual benefit: explain how the change improves impression, hierarchy, rhythm, or consistency.
+   - Risk: point out possible visual or interaction risks.
+3. Do not change: only list specific areas, components, tokens, copy, visual traits, or interaction states that should be preserved, and explain why. Do not repeat broad design-direction summaries.
 """,
-    "direction": """身份：
-你是视觉设计总监。
+    "direction": """Role:
+You are a visual design director.
 
-任务：
-请作为视觉设计总监，生成高质量设计意象 markdown。重点识别产品的转化关系、应避免的行业俗套、可执行的视觉隐喻、材质、构图、动效和字体气质。
+Task:
+Generate high-quality design imagery markdown as a visual design director. Focus on product transformation relationships, industry cliches to avoid, implementable visual metaphors, materiality, composition, motion, and typographic character.
 
-限制：
-- 不要输出完整 HTML。
-- 不要写代码。
-- 少写概念说明，多写可被实现者直接转成画面的设计表达。
-- 主动考虑动画、SVG、材质、构图和组件气质作为设计表达手段，尤其用于关键动作、品牌记忆、关键内容入口、状态反馈和复杂关系表达。
-- 说明它们应该出现在哪里、表现什么、如何克制落地，以及不应该扩散到哪些区域。
-- 用首屏结构、模块关系、状态样例、视觉层级、材质、构图、动效和组件气质承载判断。
-- 控制视觉强度分配。强视觉只放在关键动作、关键品牌记忆和关键内容入口；辅助区域保持安静、稳定、可扫读。
-- 不要加入没必要的宣传文案、解释文案或口号。文案只保留真实界面可能需要的短标签、标题、按钮、数据和状态提示。
-- 如果缺少足以判断的产品信息、受众、页面目标或参考文件，先说明缺少什么，以及这些信息会影响哪些视觉判断。
+Constraints:
+- Do not output full HTML.
+- Do not write code.
+- Ground the design direction in the product subject, user scenario, real content, page goal, and provided visual signals. Do not apply generic AI templates.
+- Avoid default category stereotypes and generic AI cliches. Do not default to conventional tech, cyberpunk, neon, dashboard, or SaaS-template aesthetics unless the subject, audience, or provided references clearly support them.
+- Keep the subject immediately recognizable. When the subject depends on living beings, places, objects, crowds, scale, texture, emotion, or sensory experience, preserve enough concrete visual anchors through imagery, illustration, SVG, content examples, UI states, material, or motion so users can identify the subject without reading explanatory copy.
+- Write less conceptual explanation and more design expression that an implementer can directly turn into visuals.
+- Choose the design dimensions that truly affect this task, such as typographic character, color relationships, spatial rhythm, motion necessity, material detail, component character, and copy tone. You do not need to expand every dimension.
+- Each direction should have an explainable memorable idea: state what users will remember and why it belongs to this product or scenario.
+- Use purposeful contrast when it strengthens the idea, such as quiet versus intense areas, dense versus open rhythm, tactile versus flat material, intimate versus public scale, or static versus motion. The contrast should create surprise and clarity, not visual noise.
+- Actively consider animation, SVG, materiality, composition, and component character as design-expression tools, especially for key actions, brand memory, key content entry points, state feedback, and complex relationship expression.
+- Explain where they should appear, what they express, how to implement them with restraint, and which areas they should not spread into.
+- Carry the judgment through first-screen structure, module relationships, state examples, visual hierarchy, materiality, composition, motion, and component character.
+- Control visual-intensity distribution. Strong visual treatment belongs only on key actions, brand memory, and key content entry points; supporting areas should stay quiet, stable, and easy to scan.
+- Do not add unnecessary promotional copy, explanatory copy, or slogans. Keep only short labels, headings, buttons, data, and state messages that a real interface may need.
+- Treat copy as interface material. Headings, buttons, labels, errors, empty states, and success states should help users understand and act, avoiding empty slogans.
+- If product information, audience, page goal, or reference files are missing, state what is missing and which visual judgments those missing inputs affect.
 
-输出格式：
-1. 核心视觉判断：说明关键设计判断。
-2. 应避免的俗套：列出会削弱辨识度的方向。
-3. 候选视觉方向：每个包含隐喻、主体、材质、构图、动效、字体气质、适配原因和主要风险。
-4. 推荐方向：推荐最适合的方向，并说明原因。
+Output format:
+1. Core visual judgment: explain the key design judgment.
+2. Cliches to avoid: list directions that would weaken distinctiveness.
+3. Candidate visual directions: each should include metaphor, subject, materiality, composition, motion, typographic character, why it fits, and major risks.
+4. Recommended direction: recommend the best-fitting direction and explain why.
 """,
-    "html": """身份：
-你是 UI 与网页视觉设计师。
+    "html": """Role:
+You are a UI and web visual designer.
 
-任务：
-请创建一个自包含 HTML 设计稿。重点体现清晰的信息层级、有辨识度的视觉意象、完整的交互状态和成熟的界面完成度。
+Task:
+Create a self-contained HTML design draft. Focus on clear information hierarchy, distinctive visual imagery, complete interaction states, and mature UI finish.
 
-输出要求：
-- 输出单个完整 HTML 文件，必须以 <!doctype html> 或 <html 开始，并以 </html> 结束。
-- CSS 写在 <style>，JS 写在 <script>。
-- 不要使用外部依赖。
-- 使用真实感占位内容，不要使用 lorem ipsum。
-- 功能和设计意图尽量通过真实 UI、状态样例、数据样例、组件变体和简单交互演示出来，不要靠说明段落解释。
-- 积极使用内联 SVG、CSS 动画、过渡、微交互和材质感来表达品牌记忆、状态反馈、关键内容入口或复杂关系，但不要让每个模块都动、都发光、都有纹理。
-- 动画应该短、轻、可感知，优先服务 hover、focus、切换、展开、进度、选中、空状态、成功状态等真实 UI 状态。
-- 材质应该服务层级和触感，例如纸面、玻璃、金属、织物、墨迹、光泽或噪点质感；只在关键区域使用，辅助区域保持清爽。
-- 页面文案保持克制，只保留界面真正需要的标题、标签、按钮、数据、状态和短提示。
-- 克制分配视觉强度。把强视觉用于关键动作、品牌记忆点和关键内容入口；列表、表单、说明、辅助信息等区域保持安静、稳定、可扫读。
-- 避免把页面做成设计说明文档、长篇介绍页或营销文案堆叠。
-- 只输出原始 HTML 源码。第一个非空字符必须是 <。
-- 不要输出 Markdown 代码块、解释文字、文件路径、file:// URL、下载链接或“已创建文件”的说明。
-- 不要把任何说明文字写在 HTML 前后。
+Output requirements:
+- Output one complete HTML file. It must start with <!doctype html> or <html and end with </html>.
+- Put CSS in <style> and JS in <script>.
+- Use realistic placeholder content. Do not use lorem ipsum.
+- Ground the design direction in the user goal, product subject, real content, and reference files. Do not apply generic AI templates.
+- Avoid default category stereotypes and generic AI cliches. Do not default to conventional tech, cyberpunk, neon, dashboard, or SaaS-template aesthetics unless the subject, audience, or provided references clearly support them.
+- Keep the subject immediately recognizable. When the subject depends on living beings, places, objects, crowds, scale, texture, emotion, or sensory experience, preserve enough concrete visual anchors through imagery, illustration, SVG, content examples, UI states, material, or motion so users can identify the subject without reading explanatory copy.
+- Design one restrained but clear memorable idea, and make it serve a key action, brand memory, or key content entry point. Do not make every module the protagonist.
+- Use purposeful contrast when it strengthens the design, such as quiet versus intense areas, dense versus open rhythm, tactile versus flat material, intimate versus public scale, or static versus motion. The contrast should create surprise and clarity while the whole page remains coherent and readable.
+- Express functionality and design intent through real UI, state examples, data examples, component variants, and simple interaction demos whenever possible. Do not rely on explanatory paragraphs.
+- Actively use inline SVG, CSS animation, transitions, micro-interactions, and material feel to express brand memory, state feedback, key content entry points, or complex relationships, but do not make every module animated, glowing, or textured.
+- Animation should be short, light, and perceptible. Prefer animation for real UI states such as hover, focus, switching, expanding, progress, selection, empty states, and success states.
+- Materiality should support hierarchy and tactility, such as paper, glass, metal, fabric, ink, gloss, or noise texture. Use it only in key areas and keep supporting areas clean.
+- Keep page copy restrained. Include only headings, labels, buttons, data, states, and short hints the interface truly needs.
+- Copy should help users understand and act. Buttons, labels, errors, empty states, and success states should be specific, natural, and consistent.
+- Distribute visual intensity with restraint. Use strong visual treatment for key actions, brand memory, and key content entry points; keep lists, forms, explanations, and supporting information quiet, stable, and easy to scan.
+- Avoid turning the page into a design-spec document, long explanatory page, or marketing-copy stack.
+- Output raw HTML source only. The first non-whitespace character must be <.
+- Do not output Markdown code fences, explanatory text, file paths, file:// URLs, download links, or "file created" messages.
+- Do not put any explanatory text before or after the HTML.
 """,
-    "svg": """身份：
-你是图标与简单插画设计师。
+    "svg": """Role:
+You are an SVG icon, simple illustration, and handwritten wordmark designer.
 
-任务：
-请创建一个干净、有表现力的 SVG 图标或简单插画。
+Task:
+Create a clean, expressive SVG icon, simple illustration, or handwritten brand wordmark.
 
-输出要求：
-- SVG 必须包含合理的 viewBox。
-- 结构清晰，适合直接保存或嵌入页面。
-- 只输出 SVG 代码。
+Output requirements:
+- The SVG must include a reasonable viewBox.
+- The structure should be clear and suitable for direct saving or embedding in a page.
+- For handwritten wordmarks, create a one-off SVG brand mark, not a full font system.
+- For handwritten wordmarks, prefer hand-shaped SVG paths over normal text. The lettering must remain readable.
+- Default handwritten wordmarks to paper-and-ink tactility: pen pressure, connected strokes, ink edges, slight bleed, paper friction, pencil or soft marker feel.
+- Small finishing marks are allowed when useful, such as a dot, underline, stamp, registration tick, ink pool, or delayed accent. Keep them subordinate to the wordmark.
+- If animation is useful, keep it inside the SVG with lightweight <style> animation, and make it feel like real writing: start, travel, pressure, release, and a restrained finishing beat.
+- Avoid neon, glow, metallic, sci-fi, hard vector grid, and effect-logo treatments for wordmarks unless the user explicitly asks for that direction.
+- SVG is XML. Escape literal ampersands as &amp; or avoid them, including inside <style> comments and visible text.
+- Output SVG code only.
 """,
 }
 
@@ -181,7 +215,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             "direction = broad art direction, optionally with -f; "
             "html = new standalone HTML, optionally with -f; "
             "svg = new standalone SVG, optionally with -f; "
-            "auth status = show whether Gemini Designer is configured."
+            "Debug only: gemini-designer auth status shows whether local authorization is configured."
         ),
     )
     parser.add_argument(
@@ -192,7 +226,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "task",
         nargs="?",
-        default="请完成这个视觉设计任务。",
+        default="Please complete this visual design task.",
         help="User task.",
     )
     parser.add_argument(
@@ -542,15 +576,27 @@ def build_prompt(
     prompt_parts = [
         COMMON_RULES.strip(),
         COMMAND_PROMPTS[args.command].strip(),
-        "用户目标：",
-        args.task.strip(),
     ]
 
     if files:
         file_content = build_files_text(files, max_chars)
-        prompt_parts.extend(["文件内容：", file_content])
+        prompt_parts.extend(
+            [
+                "Reference and context files:",
+                "The following files provide context, existing style, design rules, content, or component references. Do not interpret them as files you should directly modify unless the user goal explicitly says so.",
+                file_content,
+            ]
+        )
     if images:
-        prompt_parts.extend(["图片补充：", build_image_manifest(images)])
+        prompt_parts.extend(["Image context:", build_image_manifest(images)])
+
+    prompt_parts.extend(
+        [
+            "Final user goal:",
+            "Use the reference files and images only as context. The following user goal is the task to satisfy:",
+            args.task.strip(),
+        ]
+    )
 
     return "\n\n".join(prompt_parts), files
 
@@ -568,17 +614,17 @@ def original_prompt_appendix(
         "",
         "---",
         "",
-        "## 原始提示词",
+        "## Original Prompt",
         "",
         "```text",
         task,
         "```",
     ]
     if files:
-        lines.extend(["", "### 引用文件"])
+        lines.extend(["", "### Referenced Files"])
         lines.extend(f"- {path}" for path, _ in files)
     if images:
-        lines.extend(["", "### 引用图片"])
+        lines.extend(["", "### Referenced Images"])
         lines.extend(build_image_manifest(images).splitlines())
     return "\n".join(lines) + "\n"
 
@@ -609,13 +655,14 @@ def resolve_output_path(args: argparse.Namespace, output_dir: pathlib.Path) -> p
 def system_prompt(command: str) -> str:
     if command == "html":
         return (
-            "你是优秀的 UI 与网页视觉设计师。只输出一个完整、自包含的原始 HTML 文档。"
-            "第一个非空字符必须是 <。不要输出 Markdown 代码块、解释文字、文件路径、"
-            "file:// URL 或下载链接。"
+            "You are an excellent UI and web visual designer. Output only one complete, "
+            "self-contained raw HTML document. The first non-whitespace character must be <. "
+            "Do not output Markdown code fences, explanatory text, file paths, file:// URLs, "
+            "or download links."
         )
     if command == "svg":
-        return "你是优秀的图标与简单插画设计师。只输出有效 SVG 源码。"
-    return "你是独立的视觉设计顾问。使用与用户目标相同的语言回答。"
+        return "You are an excellent icon and simple illustration designer. Output only valid SVG source."
+    return "You are an independent visual design advisor. Respond in the same language as the user goal."
 
 
 def strip_code_fence(content: str) -> str:
@@ -626,7 +673,7 @@ def strip_code_fence(content: str) -> str:
     return stripped
 
 
-def normalize_html_output(content: str) -> str:
+def normalize_html_output(content: str, command: str = "html") -> str:
     content = strip_code_fence(content)
     start_match = re.search(r"(?is)<!doctype\s+html\b|<html\b", content)
     end_match = re.search(r"(?is)</html\s*>", content)
@@ -634,9 +681,10 @@ def normalize_html_output(content: str) -> str:
         fail(
             "invalid_generated_output",
             "Gemini did not return a complete HTML document.",
-            "Retry the command. The html command requires raw HTML, not explanations, file URLs, or partial fragments.",
+            f"Retry the command. The {command} command requires raw HTML, not explanations, file URLs, or partial fragments.",
         )
     html = content[start_match.start() : end_match.end()].strip()
+    validate_html_integrity(html, command)
     return html + "\n"
 
 
@@ -650,14 +698,98 @@ def normalize_svg_output(content: str) -> str:
             "Gemini did not return valid SVG source.",
             "Retry the command. The svg command requires raw SVG, not explanations or file URLs.",
         )
-    return content[start : end + len("</svg>")].strip() + "\n"
+    svg = content[start : end + len("</svg>")].strip()
+    svg = escape_bare_xml_ampersands(svg)
+    validate_svg_integrity(svg)
+    return svg + "\n"
+
+
+def validate_html_integrity(content: str, command: str) -> None:
+    stripped = content.strip()
+    if not stripped.startswith("<"):
+        fail(
+            "invalid_generated_output",
+            "Gemini returned HTML with text before the document.",
+            f"Retry the command. The {command} command requires raw HTML source only.",
+        )
+    if not re.match(r"(?is)\A\s*(<!doctype\s+html\b|<html\b)", stripped):
+        fail(
+            "invalid_generated_output",
+            "Gemini returned HTML that does not start with a doctype or <html>.",
+            f"Retry the command. The {command} command requires one complete HTML document.",
+        )
+    if not re.search(r"(?is)</html\s*>\s*\Z", stripped):
+        fail(
+            "invalid_generated_output",
+            "Gemini returned HTML that does not end with </html>.",
+            f"Retry the command. The {command} command requires one complete HTML document.",
+        )
+    lowered = stripped.lower()
+    for required in ("<head", "</head>", "<body", "</body>"):
+        if required not in lowered:
+            fail(
+                "invalid_generated_output",
+                f"Gemini returned incomplete HTML. Missing `{required}`.",
+                f"Retry the command. The {command} command requires a complete document with head and body.",
+            )
+    for error, pattern, message, hint in HTML_FORBIDDEN_PATTERNS:
+        if pattern.search(stripped):
+            fail(f"invalid_generated_output_{error}", message, hint)
+    if re.search(r"(?is)\blorem\s+ipsum\b", stripped):
+        fail(
+            "invalid_generated_output_lorem_ipsum",
+            "Generated HTML contains lorem ipsum placeholder text.",
+            "Retry the command with a concrete content goal. The html command requires realistic placeholder content.",
+        )
+
+
+def validate_svg_integrity(content: str) -> None:
+    stripped = content.strip()
+    if not stripped.startswith("<svg"):
+        fail(
+            "invalid_generated_output",
+            "Gemini returned SVG with text before the <svg> root.",
+            "Retry the command. The svg command requires raw SVG source only.",
+        )
+    if "```" in stripped or "file://" in stripped.lower():
+        fail(
+            "invalid_generated_output",
+            "Gemini returned SVG with output wrapper text or a local file URL.",
+            "Retry the command. The svg command requires raw SVG source only.",
+        )
+    validate_svg_xml(stripped)
+
+
+def escape_bare_xml_ampersands(content: str) -> str:
+    return re.sub(
+        r"&(?!#\d+;|#x[0-9A-Fa-f]+;|[A-Za-z][A-Za-z0-9._:-]*;)",
+        "&amp;",
+        content,
+    )
+
+
+def validate_svg_xml(content: str) -> None:
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError as error:
+        fail(
+            "invalid_generated_output",
+            f"Gemini returned SVG that is not valid XML: {error}",
+            "Retry the command. The svg command requires XML-valid SVG source.",
+        )
+    if not root.tag.endswith("svg"):
+        fail(
+            "invalid_generated_output",
+            "Gemini returned XML, but the root element is not SVG.",
+            "Retry the command. The svg command requires an <svg> root element.",
+        )
 
 
 def normalize_model_output(content: str, command: str) -> str:
     if command not in OUTPUT_TYPES:
         return content
     if command == "html":
-        return normalize_html_output(content)
+        return normalize_html_output(content, command)
     if command == "svg":
         return normalize_svg_output(content)
     return strip_code_fence(content) + "\n"
@@ -778,6 +910,8 @@ def run_gemini(
             str(error),
         )
     print(f"output_path={out_path}")
+    if args.command in OUTPUT_TYPES:
+        print("integrity=passed")
 
 
 def main(argv: list[str]) -> int:

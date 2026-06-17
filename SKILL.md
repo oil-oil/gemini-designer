@@ -1,6 +1,6 @@
 ---
 name: gemini-designer
-description: Use Gemini as the required external visual design advisor when a task needs design imagery markdown, art direction, UI critique, visual hierarchy judgment, design-system fit, color/type/layout suggestions, HTML mockups, SVG icons, or file-based feedback on existing UI. Trigger on requests like "design a page", "generate design imagery", "give design advice", "optimize this UI", "review this design", "create an icon", "suggest colors", "UI mockup", "visual direction", or when another agent needs a second opinion on visual quality.
+description: Use Gemini as the required external visual design advisor when a task needs design imagery markdown, art direction, UI critique, visual hierarchy judgment, design-system fit, color/type/layout suggestions, HTML mockups, SVG icons, handwritten SVG wordmarks, or file-based feedback on existing UI. Trigger on requests like "design a page", "generate design imagery", "give design advice", "optimize this UI", "review this design", "create an icon", "suggest colors", "UI mockup", "visual direction", "lettering", "wordmark", "handwritten logo", or when another agent needs a second opinion on visual quality.
 ---
 
 # Gemini Designer — Visual Design Advisor
@@ -16,14 +16,18 @@ Use Gemini as an external visual design advisor for taste, direction, hierarchy,
 - For broad art direction, use `gemini-designer direction`. It may include files as background context.
 - For design imagery markdown, use `gemini-designer direction` and read the generated markdown before responding.
 - For new standalone HTML/SVG design drafts, use `gemini-designer html` or `gemini-designer svg`.
+- For a single handwritten SVG brand wordmark, lettering mark, signature mark, or logo-like text asset, use `gemini-designer svg`.
+- For a comparison sheet with multiple wordmark candidates, use `gemini-designer html`.
 - If the user provides screenshots, mockups, moodboards, or visual references, include relevant images with `-i / --image` when they help Gemini judge visual style, layout, hierarchy, mood, or fidelity.
 - Gemini is stateless. It does not know the current project, prior conversation, screenshots, local files, design rules, or previous Gemini outputs unless they are included in the current command.
 - Do not ask Gemini to review code quality, technical debt, CSS lint, or engineering consistency unless the user explicitly asks. Keep Gemini focused on visual effect, design intent, hierarchy, rhythm, taste, and UI experience.
 - Do not ask Gemini to output code patches or diffs for existing files. Use its design advice, then make the actual edits yourself.
 - After Gemini returns design advice, design imagery markdown, visual direction, or an HTML mockup, show the output or a concise summary to the user and wait for confirmation before implementing it in project code, unless the user explicitly asked to implement immediately.
-- After `html` or `svg` returns, do not start an extra AI review, visual critique, browser screenshot check, or refinement loop unless the user explicitly asked for checking or iteration. Confirm the file exists, read enough to know what Gemini returned, then present it to the user.
+- After `html` or `svg` returns, do not start an extra AI review, visual critique, browser screenshot check, grep/tail completeness check, or refinement loop unless the user explicitly asked for checking or iteration. The CLI performs structural integrity checks before writing generated HTML/SVG. Read enough to know what Gemini returned, then present it to the user.
 - For ordinary HTML, SVG, or icon requests, run the script ONCE per task. Read the output file and proceed.
 - Pass the user's stated requirements and concrete project context. Do not add the agent's own style labels, layout choices, color choices, metaphor choices, or evaluation criteria unless the user explicitly said them.
+- Do not pre-design for Gemini. For creative generation, the agent should state the user goal, source material, output format, and hard constraints only. Do not name visual directions, metaphors, layouts, palettes, typography, materials, or animation concepts unless the user explicitly provided them.
+- For multiple alternatives, ask Gemini for independent, clearly different options. Do not assign the options names like "dashboard direction", "editorial direction", or "radar direction" unless the user gave those directions.
 - The CLI manages its own configuration and authorization. Do not pre-check authorization. If a call fails with `error=not_authorized`, report that Gemini Designer is not authorized.
 
 ## Gemini CLI
@@ -36,26 +40,34 @@ If the shell reports `command not found`, resolve `/path/to/this-skill` to the d
 
 If the CLI returns `error=not_authorized`, stop and tell the user Gemini Designer is not authorized. Do not read, copy, print, or manage API keys.
 
-Each command has its own built-in prompt. Choose the right command and pass the user's task plainly; do not add a cross-command prompt framework or extra output rules unless the user explicitly gave them.
+Each command has its own built-in prompt. Choose the right command and pass the user's task plainly; do not add a cross-command prompt framework, design direction, or extra output rules unless the user explicitly gave them.
 
 Commands:
 
 - `gemini-designer advise` — Use for visual design advice. It may include `-f` and `-i` as reference context, and requires a readable markdown file name with `-o`. Gemini gives concrete implementation-oriented visual suggestions, reuse reminders, and pseudo-code snippets when useful. Use this for small refinements and project-style consistency.
 - `gemini-designer direction` — Use before implementation when the task needs a stronger idea, art direction, visual metaphor, design imagery markdown, or high-level design direction. Files are optional. Always provide a readable markdown file name with `-o`.
 - `gemini-designer html` — Use for a new standalone HTML mockup or concept page. It may include `-f` and `-i` as reference context, but do not use it to directly revise an existing project file.
-- `gemini-designer svg` — Use for a new SVG icon or simple illustration. It may include `-f` and `-i` as reference context.
+- `gemini-designer svg` — Use for a new SVG icon, simple illustration, or single handwritten SVG wordmark. It may include `-f` and `-i` as reference context.
 
 When `advise` needs to judge existing UI, pass complete relevant files by default. Do not summarize, slice, or annotate the file unless the file is too large for the CLI limit or the user asks for a scoped review. Prompt-only `advise` is fine for general design questions.
 
 For `advise` and `direction`, always name the markdown file at call time with `-o`. Prefer a bare readable filename, such as `accounts-filter-advice.md`, `museon-home-art-direction.md`, or `pricing-page-design-imagery.md`; the CLI saves bare names under `.gemini-designer/`. Use an explicit path only when a specific directory is required.
 
-For `html` and `svg`, pass files with `-f` when Gemini should reference existing content, design rules, previous mockups, theme tokens, or example components. Treat those files as context for a new design draft, not as files Gemini will patch in place.
+For `html` and `svg`, pass files with `-f` when Gemini should reference existing content, design rules, previous mockups, theme tokens, example components, or brand references. Treat those files as context for a new design draft, not as files Gemini will patch in place.
 
 For `html`, describe the design goal only. Do not ask Gemini to save a file, return a `file://` URL, provide a download link, or explain where the file is. The CLI writes the output file; Gemini must return raw complete HTML source only.
+
+For `html`, do not mention asset or dependency policy by default. Let Gemini decide whether images, fonts, scripts, stylesheets, icon libraries, audio, or video help the design. Only add asset constraints when the user explicitly asks for them, such as fully self-contained, offline-safe, no external resources, or use realistic public images.
+
+For handwritten wordmarks, use `svg` when the user wants one asset, and use `html` when the user wants several candidates to compare. Describe the word or words, mood, and any explicit material preference from the user. Do not prescribe neon, metal, sci-fi, or other effect-heavy styles unless the user asked for them. The default direction is readable paper-and-ink SVG lettering with subtle writing animation and tasteful finishing marks when useful.
+
+The built-in `direction`, `html`, and `svg` prompts lightly remind Gemini to avoid generic AI templates and default category stereotypes, keep the subject immediately recognizable through concrete sensory anchors, ground design choices in the product subject and real content, use purposeful contrast when it improves visual communication, spend visual boldness in one important place, and keep surrounding UI quiet.
 
 ## Context Rules
 
 Gemini receives only the command text, files passed with `-f`, and images passed with `-i`. It has no memory across calls.
+
+The CLI places the final user goal after reference files and image manifests so Gemini sees the concrete task last. Agents should keep the task text close to the user's wording instead of repeating constraints in several places.
 
 When asking about an existing UI, pass the smallest complete set of files needed for the visual judgment:
 
@@ -116,7 +128,10 @@ gemini-designer advise "给这个页面提视觉设计建议" -f ./design.html -
 gemini-designer advise "结合截图给这个页面提视觉设计建议" -f ./design.html -i ./screenshots/current.png -o page-screenshot-advice.md
 gemini-designer direction "给这个产品生成设计意象 markdown" -o product-design-imagery.md
 gemini-designer direction "基于这个页面生成设计意象 markdown" -f ./design.html -o page-design-imagery.md
-gemini-designer html "生成一个自包含的活动页设计稿" -f ./design.html -o ./designs/page.html
+gemini-designer html "基于这个页面生成一个完整、全新的落地页方案。保留产品信息，由你独立判断视觉方向，不要复刻原稿。" -f ./design.html -o ./designs/page.html
+gemini-designer html "基于这个页面生成第 1 个完整落地页方案。保留产品信息，由你独立判断视觉方向。后续方案需要彼此明显不同。" -f ./design.html -o ./designs/page-option-1.html
+gemini-designer svg "为 Museon 生成一个手写 SVG 字标，气质像策展笔记标题" -o museon-wordmark.svg
+gemini-designer html "展示 Museon、Mel、Signal 三个手写 SVG 字标候选，默认偏纸面墨迹和真实笔触" -o wordmark-candidates.html
 gemini-designer svg "生成一个设置图标" -f ./brand.md -o ./icons/settings.svg
 ```
 
@@ -132,6 +147,12 @@ The script prints on success:
 output_path=<path to output file>
 ```
 
+For `html` and `svg`, the script also prints:
+
+```text
+integrity=passed
+```
+
 Read the file at `output_path` to get Gemini's response.
 
 On failure, the CLI prints stable fields:
@@ -144,10 +165,12 @@ hint=<next step>
 
 Follow the `hint` when it is actionable. If `error=not_authorized`, stop and tell the user Gemini Designer is not authorized.
 
+For generated HTML/SVG, treat `output_path` plus `integrity=passed` as the normal completeness signal. Do not duplicate CLI checks in the agent unless the user asks for additional browser or visual verification.
+
 ## Output types
 
-- `gemini-designer html` — Self-contained complete HTML source with inline CSS. Ready to open in browser. The CLI rejects incomplete HTML, file URLs, and explanatory text.
-- `gemini-designer svg` — Clean SVG code. Can be saved directly or embedded in HTML/React.
+- `gemini-designer html` — Self-contained complete HTML source with inline CSS. Ready to open in browser. The CLI rejects incomplete HTML, missing head/body, file URLs, markdown fences, lorem ipsum, and non-HTML wrapper output.
+- `gemini-designer svg` — Clean SVG code for icons, simple illustrations, or single handwritten wordmarks. The CLI rejects invalid XML, wrapper text, markdown fences, and local file URLs. Can be saved directly or embedded in HTML/React.
 - `gemini-designer advise` and `gemini-designer direction` — Markdown output.
 
 ## Configuration
@@ -162,6 +185,7 @@ Follow the `hint` when it is actionable. If `error=not_authorized`, stop and tel
 - Need Gemini to inspect existing HTML/CSS/TSX and give visual design advice
 - Need a concise visual optimization plan based on one or more local files
 - Need a visual reference or HTML mockup for a UI component or page
+- Need handwritten SVG wordmark, lettering, signature mark, or logo-like text candidates
 - Need SVG icons or simple illustrations
 - Need color palette, typography, or layout suggestions
 - Need design feedback or critique on an existing design
@@ -174,19 +198,25 @@ Follow the `hint` when it is actionable. If `error=not_authorized`, stop and tel
 3. Use the user's wording as the task text whenever possible. Add only factual context needed to identify files, product scope, or constraints the user actually gave.
 4. For design imagery markdown or visual direction, call `gemini-designer direction`.
 5. For new HTML/SVG design drafts, call `gemini-designer html` or `gemini-designer svg`; include `-f` or `-i` when reference context matters.
-6. Read Gemini's output.
-7. If `advise` says more context is needed, gather the requested context and rerun `gemini-designer advise` once before presenting advice to the user. If the context is unavailable, ask the user for it.
-8. When implementing `advise` output, first look for existing project components, selectors, classes, tokens, variables, and layout patterns to reuse. If Gemini suggests replacing a broad system or inventing unrelated UI, narrow it to existing patterns before editing.
-9. If Gemini drifts into code review when the task is visual, rerun with a visual-only goal such as: "只从视觉设计角度判断，不要评论代码规范或工程债。"
-10. Present advisory outputs or HTML mockups to the user for confirmation before editing project code, unless the user explicitly asked to implement immediately.
-11. Base the final response on Gemini's output. You may summarize, select, or implement useful parts, but do not replace Gemini's design judgment with your own generated design direction.
+6. For a single handwritten SVG wordmark, call `gemini-designer svg`; for several wordmark candidates in one comparison sheet, call `gemini-designer html`.
+7. Read Gemini's output.
+8. If `advise` says more context is needed, gather the requested context and rerun `gemini-designer advise` once before presenting advice to the user. If the context is unavailable, ask the user for it.
+9. When implementing `advise` output, first look for existing project components, selectors, classes, tokens, variables, and layout patterns to reuse. If Gemini suggests replacing a broad system or inventing unrelated UI, narrow it to existing patterns before editing.
+10. If Gemini drifts into code review when the task is visual, rerun with a visual-only goal such as: "只从视觉设计角度判断，不要评论代码规范或工程债。"
+11. Present advisory outputs or HTML mockups to the user for confirmation before editing project code, unless the user explicitly asked to implement immediately.
+12. Base the final response on Gemini's output. You may summarize, select, or implement useful parts, but do not replace Gemini's design judgment with your own generated design direction.
 
 ## Tips
 
 - Keep the task prompt close to the user's request.
 - If the user did not specify a style, color, font, layout, metaphor, or visual direction, do not invent one in the prompt.
+- Do not split multiple Gemini generations by agent-authored themes. Use neutral wording such as "第 1 个独立方案 / 第 2 个独立方案 / 第 3 个独立方案" and ask Gemini to make them clearly different through its own judgment.
+- When passing a reference design, say whether Gemini may preserve or should avoid copying it. Do not replace that with your own alternate concepts.
+- For HTML mockups, do not mention asset or dependency rules unless the user asks. Unnecessary constraints can weaken Gemini's design judgment.
 - Only pass explicit user preferences (e.g. "dark mode", "use blue") when the user actually said so.
 - When the task asks for design insight, direction, or an HTML mockup, do not ask Gemini for long explanatory copy. Let Gemini express ideas through visible UI structure, states, examples, hierarchy, and interaction when possible.
 - Do not translate "more designed" into visual noise. Strong visual treatment should support key actions, brand memory, and key content entry points; supporting areas should stay quiet, stable, and easy to scan.
+- Let Gemini decide how to avoid cliches. Do not add your own list of banned styles, but pass explicit user constraints such as "避免俗套科技感、赛博朋克感" when the user says them.
 - Let Gemini actively consider motion, inline SVG, material, and micro-interaction opportunities, but do not prescribe a specific animation or material style unless the user asked for it.
+- Do not add your own anti-template checklist to the task prompt. The CLI already gives Gemini light reminders about generic AI aesthetics, memorable visual ideas, restraint, real content, and UI copy.
 - Chinese prompts work well — Gemini responds in the same language.
